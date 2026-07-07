@@ -34,14 +34,5 @@
         "trustAllTools": false
       }
     ]
-  ],
-  "provider": {
-    "kiro": {
-      "models": {
-        "sonnet": {
-          "name": "Claude Sonnet via Kiro"
-        }
-      }
-    }
-  }
+  ]
 }

@@ -10,16 +10,7 @@ After the package is published to npm, add it directly to your OpenCode config:
 
 ```jsonc
 {
-  "plugin": ["@bogyie/opencode-kiro-plugin"],
-  "provider": {
-    "kiro": {
-      "models": {
-        "sonnet": {
-          "name": "Sonnet alias"
-        }
-      }
-    }
-  }
+  "plugin": ["@bogyie/opencode-kiro-plugin"]
 }
 ```
 
@@ -34,16 +25,7 @@ Then add the plugin to your OpenCode config. See [examples/opencode.jsonc](examp
 
 ```jsonc
 {
-  "plugin": ["file:/absolute/path/to/opencode-kiro-plugin"],
-  "provider": {
-    "kiro": {
-      "models": {
-        "sonnet": {
-          "name": "Sonnet alias"
-        }
-      }
-    }
-  }
+  "plugin": ["file:/absolute/path/to/opencode-kiro-plugin"]
 }
 ```
 
@@ -139,6 +121,8 @@ Resolution order:
 7. Optimistic pass-through unless disabled
 
 This keeps new Kiro model ids usable before the package is updated. Use `extraModels` when a new model should appear in OpenCode's model picker immediately. Set `disableModelPassThrough: true` only when you need strict model governance.
+
+The plugin injects `provider.kiro` automatically. You only need to add `provider.kiro.models` yourself when overriding OpenCode model-picker metadata, such as a display name or context limit. Use plugin `modelAliases` for aliases that should resolve one requested model id to another.
 
 `modelDiscoveryCommand` is optional and intentionally not guessed by default because Kiro CLI model-list flags may vary by version. When configured, stdout can be a JSON array, `{ "models": [...] }`, `{ "data": [...] }`, or one model id per line.
 
