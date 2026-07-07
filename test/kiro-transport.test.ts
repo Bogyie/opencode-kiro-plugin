@@ -18,6 +18,14 @@ const request: KiroGenerateRequest = {
   system: "Be concise.",
   prompt: "user: Hello",
   history: [{ role: "assistant", content: "Previous answer" }],
+  tools: [
+    {
+      name: "read_file",
+      description: "Read a file",
+      inputSchema: { type: "object", properties: { path: { type: "string" } } },
+    },
+  ],
+  toolResults: [{ toolUseId: "call-1", toolName: "read_file", content: "file contents" }],
   stream: false,
   metadata: {
     originalModel: "claude-sonnet-4-6",
@@ -43,6 +51,25 @@ describe("toGenerateAssistantResponseInput", () => {
             content: "user: Hello",
             modelId: "claude-sonnet-4.6",
             origin: "AI_EDITOR",
+            userInputMessageContext: {
+              tools: [
+                {
+                  toolSpecification: {
+                    name: "read_file",
+                    description: "Read a file",
+                    inputSchema: { json: { type: "object", properties: { path: { type: "string" } } } },
+                  },
+                },
+              ],
+              toolResults: [
+                {
+                  toolUseId: "call-1",
+                  content: [{ text: "file contents" }],
+                  status: "SUCCESS",
+                  toolName: "read_file",
+                },
+              ],
+            },
           },
         },
       },

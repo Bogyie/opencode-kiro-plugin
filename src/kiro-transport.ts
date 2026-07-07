@@ -91,6 +91,32 @@ export function toGenerateAssistantResponseInput(
           content,
           modelId: request.modelId,
           origin: "AI_EDITOR",
+          userInputMessageContext:
+            request.tools.length > 0 || request.toolResults.length > 0
+              ? {
+                  ...(request.tools.length > 0
+                    ? {
+                        tools: request.tools.map((item) => ({
+                          toolSpecification: {
+                            name: item.name,
+                            ...(item.description ? { description: item.description } : {}),
+                            inputSchema: { json: item.inputSchema },
+                          },
+                        })),
+                      }
+                    : {}),
+                  ...(request.toolResults.length > 0
+                    ? {
+                        toolResults: request.toolResults.map((item) => ({
+                          toolUseId: item.toolUseId,
+                          content: [{ text: item.content }],
+                          status: "SUCCESS",
+                          ...(item.toolName ? { toolName: item.toolName } : {}),
+                        })),
+                      }
+                    : {}),
+                }
+              : undefined,
         },
       },
     },

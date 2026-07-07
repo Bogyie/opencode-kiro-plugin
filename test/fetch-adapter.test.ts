@@ -17,9 +17,19 @@ const request: OpenAIChatRequest = {
     { role: "system", content: "You are concise." },
     { role: "user", content: "Hello" },
     { role: "assistant", content: "Hi" },
+    { role: "tool", tool_call_id: "call-1", name: "read_file", content: "file contents" },
     { role: "user", content: [{ type: "text", text: "Write code" }] },
   ],
-  tools: [{ type: "function" }],
+  tools: [
+    {
+      type: "function",
+      function: {
+        name: "read_file",
+        description: "Read a file",
+        parameters: { type: "object", properties: { path: { type: "string" } }, required: ["path"] },
+      },
+    },
+  ],
 }
 
 describe("request adapter", () => {
@@ -31,6 +41,21 @@ describe("request adapter", () => {
       history: [
         { role: "user", content: "Hello" },
         { role: "assistant", content: "Hi" },
+        { role: "tool", content: "file contents" },
+      ],
+      tools: [
+        {
+          name: "read_file",
+          description: "Read a file",
+          inputSchema: { type: "object", properties: { path: { type: "string" } }, required: ["path"] },
+        },
+      ],
+      toolResults: [
+        {
+          toolUseId: "call-1",
+          toolName: "read_file",
+          content: "file contents",
+        },
       ],
       stream: false,
       metadata: {

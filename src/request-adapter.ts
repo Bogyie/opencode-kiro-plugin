@@ -4,15 +4,25 @@ export interface OpenAIChatMessage {
   readonly role: "system" | "user" | "assistant" | "tool"
   readonly content?: string | ReadonlyArray<{ type: string; text?: string; [key: string]: unknown }>
   readonly tool_call_id?: string
+  readonly name?: string
 }
 
 export interface OpenAIChatRequest {
   readonly model: string
   readonly messages: ReadonlyArray<OpenAIChatMessage>
   readonly stream?: boolean
-  readonly tools?: ReadonlyArray<unknown>
+  readonly tools?: ReadonlyArray<OpenAITool>
   readonly temperature?: number
   readonly max_tokens?: number
+}
+
+export interface OpenAITool {
+  readonly type: "function"
+  readonly function: {
+    readonly name: string
+    readonly description?: string
+    readonly parameters?: unknown
+  }
 }
 
 export interface KiroGenerateRequest {
@@ -20,6 +30,8 @@ export interface KiroGenerateRequest {
   readonly prompt: string
   readonly system?: string
   readonly history: ReadonlyArray<KiroConversationTurn>
+  readonly tools: ReadonlyArray<KiroToolSpec>
+  readonly toolResults: ReadonlyArray<KiroToolResult>
   readonly stream: boolean
   readonly metadata: {
     readonly originalModel: string
@@ -34,6 +46,18 @@ export interface KiroConversationTurn {
   readonly content: string
 }
 
+export interface KiroToolSpec {
+  readonly name: string
+  readonly description?: string
+  readonly inputSchema: unknown
+}
+
+export interface KiroToolResult {
+  readonly toolUseId: string
+  readonly content: string
+  readonly toolName?: string
+}
+
 function textFromContent(content: OpenAIChatMessage["content"]): string {
   if (content === undefined) return ""
   if (typeof content === "string") return content
@@ -44,6 +68,24 @@ function textFromContent(content: OpenAIChatMessage["content"]): string {
     })
     .filter(Boolean)
     .join("\n")
+}
+
+function toolSpecs(tools: ReadonlyArray<OpenAITool> | undefined): KiroToolSpec[] {
+  return (tools ?? []).map((tool) => ({
+    name: tool.function.name,
+    ...(tool.function.description ? { description: tool.function.description } : {}),
+    inputSchema: tool.function.parameters ?? { type: "object", properties: {} },
+  }))
+}
+
+function toolResults(messages: ReadonlyArray<OpenAIChatMessage>): KiroToolResult[] {
+  return messages
+    .filter((message) => message.role === "tool" && message.tool_call_id)
+    .map((message) => ({
+      toolUseId: message.tool_call_id as string,
+      content: textFromContent(message.content),
+      ...(message.name ? { toolName: message.name } : {}),
+    }))
 }
 
 export async function readOpenAIRequest(input: RequestInfo | URL, init?: RequestInit): Promise<OpenAIChatRequest> {
@@ -80,6 +122,8 @@ export function toKiroGenerateRequest(request: OpenAIChatRequest, resolver: Mode
     modelId: resolved.internalID,
     prompt: current?.content ?? "",
     history,
+    tools: toolSpecs(request.tools),
+    toolResults: toolResults(request.messages),
     ...(system ? { system } : {}),
     stream: request.stream === true,
     metadata: {

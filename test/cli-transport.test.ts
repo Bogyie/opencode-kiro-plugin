@@ -11,6 +11,8 @@ const request: KiroGenerateRequest = {
     { role: "user", content: "Previous question" },
     { role: "assistant", content: "Previous answer" },
   ],
+  tools: [],
+  toolResults: [],
   stream: false,
   metadata: {
     originalModel: "claude-sonnet-4-6",
@@ -65,4 +67,3 @@ describe("KiroCliChatTransport", () => {
     expect(transport.generate(request)).rejects.toThrow("not logged in")
   })
 })
-
