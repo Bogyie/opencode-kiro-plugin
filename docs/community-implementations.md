@@ -51,10 +51,9 @@ License: MIT
 
 ## Impact on This Project
 
-기존 결론은 "Kiro 공식 LLM API가 문서화되지 않았으므로 CLI/ACP가 안전한 시작점"이었습니다. 두 community repo를 반영하면 구현 후보는 더 구체화됩니다.
+기존 결론은 "Kiro 공식 LLM API가 문서화되지 않았으므로 CLI/ACP가 안전한 시작점"이었습니다. community 구현을 반영하면 구현 후보는 더 구체화됩니다.
 
 권장 우선순위:
 
 1. `opencode-kiro-auth` 패턴을 참고해 OpenCode plugin + custom fetch adapter를 prototype합니다.
-3. 공식성/안정성이 더 필요한 사용자를 위해 CLI/ACP adapter를 별도 backend로 유지합니다.
-
+2. 공식성/안정성이 더 필요한 사용자를 위해 CLI/ACP adapter를 별도 backend로 유지합니다.

@@ -14,6 +14,7 @@
 
 - Kiro private token file을 기본 동작에서 직접 수정하지 않습니다.
 - 모델 ID를 상수 whitelist로 막지 않습니다.
+- 첫 버전에서 외부 proxy/server 배포까지 포함하지 않습니다.
 
 ## Milestone 0: Project Scaffold
 
