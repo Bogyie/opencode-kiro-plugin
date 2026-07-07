@@ -38,7 +38,7 @@ describe("package metadata", () => {
     })
     expect(packageJson.repository).toEqual({
       type: "git",
-      url: "git+https://github.com/bogyie/opencode-kiro-plugin.git",
+      url: "git+https://github.com/Bogyie/opencode-kiro-plugin.git",
     })
   })
 
