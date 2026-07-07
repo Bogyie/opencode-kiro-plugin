@@ -248,6 +248,26 @@ describe("createKiroFetch", () => {
     expect(body.choices[0].message.content).toBe("received claude-sonnet-4.6")
   })
 
+  test("returns structured error for empty non-streaming transport responses", async () => {
+    const fetch = createKiroFetch({
+      resolver: resolver(),
+      transport: {
+        async generate() {
+          return { text: "" }
+        },
+      },
+    })
+
+    const response = await fetch("https://q.us-east-1.amazonaws.com/chat/completions", {
+      method: "POST",
+      body: JSON.stringify(request),
+    })
+    const body = await response.json()
+
+    expect(response.status).toBe(502)
+    expect(body.error.code).toBe("KIRO_EMPTY_RESPONSE")
+  })
+
   test("returns OpenAI-compatible SSE when stream is requested", async () => {
     const fetch = createKiroFetch({
       resolver: resolver(),
@@ -298,6 +318,25 @@ describe("createKiroFetch", () => {
     expect(body).not.toContain('"content":""')
     expect(body).toContain('"content":"done"')
     expect(body).toContain('"finish_reason":"stop"')
+  })
+
+  test("rejects empty streaming transport responses", async () => {
+    const fetch = createKiroFetch({
+      resolver: resolver(),
+      transport: {
+        async generate() {
+          throw new Error("generate should not be called for streaming")
+        },
+        async *stream() {},
+      },
+    })
+
+    const response = await fetch("https://q.us-east-1.amazonaws.com/chat/completions", {
+      method: "POST",
+      body: JSON.stringify({ ...request, stream: true }),
+    })
+
+    await expect(response.text()).rejects.toThrow("Kiro backend returned an empty response stream.")
   })
 
   test("streams reasoning deltas separately from content deltas", async () => {
@@ -364,6 +403,27 @@ describe("createKiroFetch", () => {
     expect(body).toContain('"content":"received claude-sonnet-4.6"')
     expect(body).toContain('"finish_reason":"stop"')
     expect(body).toContain("data: [DONE]")
+  })
+
+  test("returns structured error for empty non-streaming responses before opening SSE", async () => {
+    const fetch = createKiroFetch({
+      resolver: resolver(),
+      transport: {
+        async generate() {
+          return { text: "" }
+        },
+      },
+    })
+
+    const response = await fetch("https://q.us-east-1.amazonaws.com/chat/completions", {
+      method: "POST",
+      body: JSON.stringify({ ...request, stream: true }),
+    })
+    const body = await response.json()
+
+    expect(response.status).toBe(502)
+    expect(response.headers.get("content-type")).toContain("application/json")
+    expect(body.error.code).toBe("KIRO_EMPTY_RESPONSE")
   })
 
   test("streams OpenAI-compatible tool-call deltas with tool-call finish reason", async () => {

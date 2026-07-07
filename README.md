@@ -67,7 +67,7 @@ Supported values:
 
 - `auto`: use CodeWhisperer fetch transport when an API key is available; otherwise use CLI chat fallback.
 - `fetch`: require the direct Kiro/CodeWhisperer fetch path. If no usable auth is available, requests fail with a structured backend/auth error.
-- `cli-chat`: call `kiro-cli chat --no-interactive`. This is official and stable, but Kiro CLI does not currently expose a guaranteed per-request model flag.
+- `cli-chat`: call `kiro-cli chat --no-interactive --model <model>`. This is official and stable, and uses the model selected in OpenCode.
 - `acp`: launch `kiro-cli acp`, initialize a session, optionally set the requested model, send the prompt, and collect `AgentMessageChunk` notifications until `TurnEnd`.
 
 `trustAllTools` affects both `cli-chat` and ACP permission handling. In ACP mode, permission requests are rejected by default and allowed only when `trustAllTools: true`.

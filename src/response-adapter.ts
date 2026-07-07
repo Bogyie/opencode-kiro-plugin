@@ -1,3 +1,5 @@
+import { KiroPluginError } from "./errors.js"
+
 export interface KiroGenerateResponse {
   readonly text: string
   readonly reasoning?: string
@@ -83,6 +85,7 @@ export function toOpenAIChatStreamResponse(chunks: AsyncIterable<KiroStreamEvent
         const toolCallIndexes = new Map<string, number>()
         let nextToolCallIndex = 0
         let sawToolCall = false
+        let sawDelta = false
         for await (const chunk of chunks) {
           let delta: Record<string, unknown>
           if (chunk.type === "tool_call") {
@@ -113,6 +116,7 @@ export function toOpenAIChatStreamResponse(chunks: AsyncIterable<KiroStreamEvent
             if (!chunk.text) continue
             delta = { content: chunk.text }
           }
+          sawDelta = true
           controller.enqueue(
             encoder.encode(
               sse({
@@ -130,6 +134,9 @@ export function toOpenAIChatStreamResponse(chunks: AsyncIterable<KiroStreamEvent
               }),
             ),
           )
+        }
+        if (!sawDelta) {
+          throw new KiroPluginError("Kiro backend returned an empty response stream.", "KIRO_EMPTY_RESPONSE", 502)
         }
         controller.enqueue(
           encoder.encode(sse({ choices: [{ index: 0, delta: {}, finish_reason: sawToolCall ? "tool_calls" : "stop" }] })),

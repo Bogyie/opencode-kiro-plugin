@@ -24,6 +24,8 @@ export function cliChatArgs(request: KiroGenerateRequest, options: Pick<CliChatT
   return [
     "chat",
     "--no-interactive",
+    "--model",
+    request.modelId,
     ...(options.trustAllTools ? ["--trust-all-tools"] : []),
     promptForCli(request),
   ]
@@ -64,8 +66,16 @@ export class KiroCliChatTransport implements KiroTransport {
         authError ? 401 : 502,
       )
     }
+    const text = sanitizeCliChatOutput(result.stdout)
+    if (!text) {
+      throw new KiroPluginError(
+        result.stderr.trim() || "kiro-cli chat completed without returning assistant text",
+        "KIRO_EMPTY_RESPONSE",
+        502,
+      )
+    }
     return {
-      text: sanitizeCliChatOutput(result.stdout),
+      text,
       modelId: request.modelId,
     }
   }

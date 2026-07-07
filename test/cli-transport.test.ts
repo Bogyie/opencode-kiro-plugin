@@ -41,6 +41,8 @@ describe("CLI prompt helpers", () => {
     expect(cliChatArgs(request, { trustAllTools: true })).toEqual([
       "chat",
       "--no-interactive",
+      "--model",
+      "claude-sonnet-4.6",
       "--trust-all-tools",
       promptForCli(request),
     ])
@@ -92,6 +94,19 @@ describe("KiroCliChatTransport", () => {
     } catch (error) {
       expect((error as { code?: string; status?: number }).code).toBe("KIRO_AUTH_ERROR")
       expect((error as { code?: string; status?: number }).status).toBe(401)
+    }
+  })
+
+  test("rejects empty successful cli output", async () => {
+    const runner: CommandRunner = async () => ({ ok: true, stdout: "\n\u001b[m\n Credits: 0.01 - Time: 1s\n", stderr: "" })
+    const transport = new KiroCliChatTransport({ runner })
+
+    expect(transport.generate(request)).rejects.toThrow("kiro-cli chat completed without returning assistant text")
+    try {
+      await transport.generate(request)
+    } catch (error) {
+      expect((error as { code?: string; status?: number }).code).toBe("KIRO_EMPTY_RESPONSE")
+      expect((error as { code?: string; status?: number }).status).toBe(502)
     }
   })
 })
