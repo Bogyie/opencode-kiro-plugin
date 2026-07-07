@@ -1,6 +1,6 @@
 {
-  "name": "@bogyie/opencode-kiro-plugin",
-  "version": "0.3.1",
+  "name": "@Bogyie/opencode-kiro-plugin",
+  "version": "0.3.2",
   "description": "OpenCode plugin for using Kiro as a provider adapter",
   "type": "module",
   "main": "dist/index.js",
@@ -36,12 +36,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/bogyie/opencode-kiro-plugin.git"
+    "url": "git+https://github.com/Bogyie/opencode-kiro-plugin.git"
   },
   "bugs": {
-    "url": "https://github.com/bogyie/opencode-kiro-plugin/issues"
+    "url": "https://github.com/Bogyie/opencode-kiro-plugin/issues"
   },
-  "homepage": "https://github.com/bogyie/opencode-kiro-plugin#readme",
+  "homepage": "https://github.com/Bogyie/opencode-kiro-plugin#readme",
   "license": "MIT",
   "publishConfig": {
     "access": "public",
