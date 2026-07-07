@@ -2,7 +2,7 @@ import type { Hooks, Plugin } from "@opencode-ai/plugin"
 import { tool } from "@opencode-ai/plugin"
 import { KiroAcpTransport } from "./acp-transport.js"
 import type { KiroAcpTransportOptions } from "./acp-transport.js"
-import { detectAuth, resolveApiKey } from "./auth.js"
+import { detectAuth, resolveApiKey, startKiroCliLogin } from "./auth.js"
 import { KiroCliChatTransport } from "./cli-transport.js"
 import { loadOptions } from "./config.js"
 import type { KiroPluginOptions } from "./config.js"
@@ -202,6 +202,22 @@ export function createKiroPlugin(): Plugin {
       auth: {
         provider: options.providerID,
         methods: [
+          {
+            type: "oauth",
+            label: "Kiro CLI login",
+            authorize: async () => {
+              const session = startKiroCliLogin()
+              return {
+                url: session.url,
+                instructions: session.instructions,
+                method: "auto",
+                callback: async () => {
+                  const authenticated = await session.waitForAuth()
+                  return authenticated ? { type: "success", key: "kiro-plugin-local-transport" } : { type: "failed" }
+                },
+              }
+            },
+          },
           {
             type: "api",
             label: "Kiro API key",

@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process"
+import { spawn, type ChildProcess } from "node:child_process"
 import { promisify } from "node:util"
 
 const execFileAsync = promisify(execFile)
@@ -30,6 +31,16 @@ export type CommandRunner = (
   options?: CommandRunOptions,
 ) => Promise<CommandResult>
 
+export type ProcessSpawner = (command: string, args: ReadonlyArray<string>) => ChildProcess
+
+export interface KiroLoginSession {
+  readonly url: string
+  readonly instructions: string
+  waitForAuth(runner?: CommandRunner): Promise<boolean>
+}
+
+export const KIRO_LOGIN_URL = "https://view.awsapps.com/start"
+
 export async function runCommand(command: string, args: ReadonlyArray<string>, options: CommandRunOptions = {}): Promise<CommandResult> {
   try {
     const result = await execFileAsync(command, [...args], { timeout: options.timeoutMs ?? 5000 })
@@ -42,6 +53,62 @@ export async function runCommand(command: string, args: ReadonlyArray<string>, o
       stderr: partial.stderr ?? "",
       error,
     }
+  }
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function firstUrl(text: string): string | undefined {
+  return /https?:\/\/[^\s"'<>]+/.exec(text)?.[0]
+}
+
+export function extractKiroLoginUrl(output: string): string {
+  return firstUrl(output) ?? KIRO_LOGIN_URL
+}
+
+export function startKiroCliLogin(spawner: ProcessSpawner = (command, args) => spawn(command, [...args], { stdio: ["ignore", "pipe", "pipe"] })): KiroLoginSession {
+  const child = spawner("kiro-cli", ["login", "--use-device-flow"])
+  let output = ""
+  let exited = false
+  let exitCode: number | null = null
+
+  child.stdout?.on("data", (chunk: Buffer) => {
+    output += chunk.toString("utf8")
+  })
+  child.stderr?.on("data", (chunk: Buffer) => {
+    output += chunk.toString("utf8")
+  })
+  child.on("exit", (code) => {
+    exited = true
+    exitCode = code
+  })
+
+  return {
+    get url() {
+      return extractKiroLoginUrl(output)
+    },
+    get instructions() {
+      const url = extractKiroLoginUrl(output)
+      const code = /\b[A-Z0-9]{4}-[A-Z0-9]{4}\b/.exec(output)?.[0] ?? /\b[A-Z0-9]{8,}\b/.exec(output)?.[0]
+      return [
+        "Complete Kiro CLI login in the browser.",
+        `URL: ${url}`,
+        ...(code ? [`Code: ${code}`] : []),
+        "The plugin will continue after `kiro-cli whoami` succeeds.",
+      ].join("\n")
+    },
+    async waitForAuth(runner: CommandRunner = runCommand): Promise<boolean> {
+      const deadline = Date.now() + 10 * 60 * 1000
+      while (Date.now() < deadline) {
+        const auth = await detectAuth(process.env, runner)
+        if (auth.authenticated) return true
+        if (exited && exitCode !== 0) return false
+        await delay(2000)
+      }
+      return false
+    },
   }
 }
 

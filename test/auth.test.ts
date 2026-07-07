@@ -1,5 +1,16 @@
 import { describe, expect, test } from "bun:test"
-import { detectAuth, redacted, resolveApiKey, type CommandRunner } from "../src/auth.js"
+import { EventEmitter } from "node:events"
+import { PassThrough } from "node:stream"
+import type { ChildProcess } from "node:child_process"
+import {
+  detectAuth,
+  extractKiroLoginUrl,
+  KIRO_LOGIN_URL,
+  redacted,
+  resolveApiKey,
+  startKiroCliLogin,
+  type CommandRunner,
+} from "../src/auth.js"
 import { getKiroCliStatus, getKiroCliVersion } from "../src/kiro-cli.js"
 
 const failingRunner: CommandRunner = async () => ({ ok: false, stdout: "", stderr: "not found" })
@@ -67,6 +78,35 @@ describe("auth diagnostics", () => {
 
     expect(key).toBe("")
   })
+
+  test("extracts Kiro login URL from cli output with fallback", () => {
+    expect(extractKiroLoginUrl("Open https://example.com/device and continue")).toBe("https://example.com/device")
+    expect(extractKiroLoginUrl("no url yet")).toBe(KIRO_LOGIN_URL)
+  })
+
+  test("starts Kiro CLI device login and waits for whoami success", async () => {
+    const stdout = new PassThrough()
+    const stderr = new PassThrough()
+    const child = new EventEmitter() as EventEmitter & {
+      stdout: PassThrough
+      stderr: PassThrough
+    }
+    child.stdout = stdout
+    child.stderr = stderr
+    const calls: unknown[] = []
+
+    const session = startKiroCliLogin((command, args) => {
+      calls.push({ command, args })
+      queueMicrotask(() => stdout.write("Open https://example.com/device and enter ABCD-EFGH"))
+      return child as unknown as ChildProcess
+    })
+    const authenticated = await session.waitForAuth(async () => ({ ok: true, stdout: "dev@example.com", stderr: "" }))
+
+    expect(calls).toEqual([{ command: "kiro-cli", args: ["login", "--use-device-flow"] }])
+    expect(session.url).toBe("https://example.com/device")
+    expect(session.instructions).toContain("ABCD-EFGH")
+    expect(authenticated).toBe(true)
+  })
 })
 
 describe("kiro-cli helpers", () => {
@@ -89,4 +129,3 @@ describe("kiro-cli helpers", () => {
     expect(status.auth.method).toBe("cli-session")
   })
 })
-

@@ -70,6 +70,7 @@ describe("Kiro plugin", () => {
 
     expect(hooks.config).toBeFunction()
     expect(hooks.auth?.provider).toBe("kiro")
+    expect(hooks.auth?.methods.map((method) => method.type)).toEqual(["oauth", "api"])
     expect(hooks.provider?.id).toBe("kiro")
   })
 

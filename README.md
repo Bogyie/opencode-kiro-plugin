@@ -37,6 +37,8 @@ The plugin resolves credentials in this order:
 2. OpenCode auth input for provider `kiro`
 3. `kiro-cli whoami` diagnostics for CLI session visibility
 
+When no usable Kiro CLI session is available, choose the `Kiro CLI login` auth method in OpenCode. The plugin starts `kiro-cli login --use-device-flow`, opens the browser through the official CLI login flow, and waits until `kiro-cli whoami` succeeds.
+
 Direct fetch mode requires an API key/token usable by the Kiro/CodeWhisperer client. `cli-chat` mode uses the official `kiro-cli chat --no-interactive` surface and depends on the local Kiro CLI login state. `acp` mode uses the official `kiro-cli acp` surface, but is still treated as an explicit backend while its real-world protocol behavior is validated across Kiro CLI versions.
 
 Use the `kiro_status` plugin tool to inspect provider id, backend, region, auth method, and discovered model count. Secrets are redacted in diagnostics.

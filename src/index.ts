@@ -5,7 +5,7 @@ export type { AcpConnection, AcpNotificationHandler, AcpStdioClientOptions, Json
 export { acpPermissionResponse, KiroAcpTransport } from "./acp-transport.js"
 export type { AcpSessionClient, KiroAcpTransportOptions } from "./acp-transport.js"
 export { createKiroPlugin, effectiveBackend, KiroPlugin } from "./plugin.js"
-export { detectAuth, redacted, resolveApiKey } from "./auth.js"
+export { detectAuth, extractKiroLoginUrl, KIRO_LOGIN_URL, redacted, resolveApiKey, startKiroCliLogin } from "./auth.js"
 export { cliChatArgs, KiroCliChatTransport, promptForCli } from "./cli-transport.js"
 export { createKiroFetch } from "./fetch-adapter.js"
 export { loadOptions } from "./config.js"
