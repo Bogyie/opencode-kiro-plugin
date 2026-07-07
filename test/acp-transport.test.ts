@@ -108,4 +108,27 @@ describe("Kiro ACP transport", () => {
     expect(response.status).toBe(200)
     expect(client.requests.map((request) => request.method)).toEqual(["initialize", "session/new", "session/prompt"])
   })
+
+  test("streams ACP assistant chunks as OpenAI-compatible SSE", async () => {
+    const client = new FakeAcpClient()
+    const fetch = createKiroFetch({
+      resolver: resolver(),
+      transport: new KiroAcpTransport({ client, promptTimeoutMs: 100 }),
+    })
+
+    const response = await fetch("https://q.us-east-1.amazonaws.com/chat/completions", {
+      method: "POST",
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        messages: [{ role: "user", content: "hello" }],
+        stream: true,
+      }),
+    })
+    const body = await response.text()
+
+    expect(response.headers.get("content-type")).toContain("text/event-stream")
+    expect(body).toContain('"content":"hello "')
+    expect(body).toContain('"content":"world"')
+    expect(body).toContain("data: [DONE]")
+  })
 })

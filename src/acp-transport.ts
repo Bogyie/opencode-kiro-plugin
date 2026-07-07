@@ -8,7 +8,7 @@ import { promptForCli } from "./cli-transport.js"
 import { KiroPluginError } from "./errors.js"
 import type { KiroTransport } from "./fetch-adapter.js"
 import type { KiroGenerateRequest } from "./request-adapter.js"
-import type { KiroGenerateResponse } from "./response-adapter.js"
+import type { KiroGenerateResponse, KiroStreamEvent } from "./response-adapter.js"
 
 export interface AcpSessionClient {
   request(method: string, params?: unknown): Promise<unknown>
@@ -103,6 +103,48 @@ function timeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T
   })
 }
 
+class AsyncQueue<T> implements AsyncIterable<T> {
+  readonly #values: T[] = []
+  readonly #waiting: Array<() => void> = []
+  #closed = false
+  #error: unknown
+
+  push(value: T): void {
+    if (this.#closed || this.#error) return
+    this.#values.push(value)
+    this.#wake()
+  }
+
+  close(): void {
+    this.#closed = true
+    this.#wake()
+  }
+
+  fail(error: unknown): void {
+    this.#error = error
+    this.#wake()
+  }
+
+  #wake(): void {
+    for (const resolve of this.#waiting.splice(0)) resolve()
+  }
+
+  async *[Symbol.asyncIterator](): AsyncIterator<T> {
+    for (;;) {
+      if (this.#values.length > 0) {
+        const value = this.#values.shift()
+        if (value !== undefined) yield value
+        continue
+      }
+      if (this.#error) throw this.#error
+      if (this.#closed) return
+      await new Promise<void>((resolve) => {
+        this.#waiting.push(resolve)
+      })
+    }
+  }
+}
+
 export class KiroAcpTransport implements KiroTransport {
   readonly #options: KiroAcpTransportOptions
 
@@ -123,62 +165,79 @@ export class KiroAcpTransport implements KiroTransport {
     }
   }
 
+  async #startSession(client: AcpSessionClient, request: KiroGenerateRequest): Promise<string> {
+    await client.request("initialize", {
+      protocolVersion: 1,
+      clientCapabilities: {
+        fs: {
+          readTextFile: false,
+          writeTextFile: false,
+        },
+        terminal: false,
+      },
+      clientInfo: this.#options.clientInfo ?? {
+        name: "opencode-kiro-plugin",
+        version: "0.1.0",
+      },
+    })
+    const sessionId = sessionIdFrom(
+      await client.request("session/new", {
+        cwd: this.#options.cwd ?? process.cwd(),
+        mcpServers: [],
+      }),
+    )
+
+    if (request.modelId !== "auto") {
+      await client.request("session/set_model", {
+        sessionId,
+        model: request.modelId,
+      })
+    }
+
+    return sessionId
+  }
+
   async generate(request: KiroGenerateRequest): Promise<KiroGenerateResponse> {
+    const chunks: string[] = []
+    for await (const event of this.stream(request)) {
+      if (event.type !== "tool_call") chunks.push(event.text)
+    }
+    return {
+      text: chunks.join(""),
+      modelId: request.modelId,
+    }
+  }
+
+  async *stream(request: KiroGenerateRequest): AsyncIterable<KiroStreamEvent> {
     const { client, owned } = this.#client()
     const promptTimeoutMs = this.#options.promptTimeoutMs ?? 120_000
-    const chunks: string[] = []
-    let endTurn: (() => void) | undefined
-    const turnEnd = new Promise<void>((resolve) => {
-      endTurn = resolve
-    })
+    const queue = new AsyncQueue<KiroStreamEvent>()
+    const timer = setTimeout(() => {
+      queue.fail(new KiroPluginError("Timed out waiting for ACP TurnEnd notification.", "KIRO_ACP_TIMEOUT", 504))
+    }, promptTimeoutMs)
     const unsubscribe = client.onNotification((notification) => {
       const update = notificationUpdate(notification)
       if (!update) return
       const text = textFromUpdate(update)
-      if (text) chunks.push(text)
-      if (isTurnEnd(update)) endTurn?.()
+      if (text) queue.push({ type: "text", text, modelId: request.modelId })
+      if (isTurnEnd(update)) queue.close()
     })
 
     try {
-      await client.request("initialize", {
-        protocolVersion: 1,
-        clientCapabilities: {
-          fs: {
-            readTextFile: false,
-            writeTextFile: false,
-          },
-          terminal: false,
-        },
-        clientInfo: this.#options.clientInfo ?? {
-          name: "opencode-kiro-plugin",
-          version: "0.1.0",
-        },
-      })
-      const sessionId = sessionIdFrom(
-        await client.request("session/new", {
-          cwd: this.#options.cwd ?? process.cwd(),
-          mcpServers: [],
-        }),
-      )
-
-      if (request.modelId !== "auto") {
-        await client.request("session/set_model", {
-          sessionId,
-          model: request.modelId,
-        })
-      }
-
-      await client.request("session/prompt", {
+      const sessionId = await this.#startSession(client, request)
+      const prompt = client.request("session/prompt", {
         sessionId,
         content: acpPromptContent(request),
+      }).catch((error) => {
+        queue.fail(error)
       })
-      await timeout(turnEnd, promptTimeoutMs, "Timed out waiting for ACP TurnEnd notification.")
 
-      return {
-        text: chunks.join(""),
-        modelId: request.modelId,
+      for await (const event of queue) {
+        yield event
       }
+      await timeout(prompt, promptTimeoutMs, "Timed out waiting for ACP prompt response.")
     } finally {
+      clearTimeout(timer)
       unsubscribe()
       if (owned) client.close?.()
     }
