@@ -40,10 +40,11 @@ export class KiroCliChatTransport implements KiroTransport {
   async generate(request: KiroGenerateRequest): Promise<KiroGenerateResponse> {
     const result = await this.#runner("kiro-cli", cliChatArgs(request, { trustAllTools: this.#trustAllTools }))
     if (!result.ok) {
+      const authError = result.stderr.toLowerCase().includes("not logged in")
       throw new KiroPluginError(
         result.stderr.trim() || "kiro-cli chat failed",
-        "KIRO_CLI_FAILED",
-        502,
+        authError ? "KIRO_AUTH_ERROR" : "KIRO_CLI_FAILED",
+        authError ? 401 : 502,
       )
     }
     return {
@@ -52,4 +53,3 @@ export class KiroCliChatTransport implements KiroTransport {
     }
   }
 }
-

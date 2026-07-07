@@ -65,5 +65,11 @@ describe("KiroCliChatTransport", () => {
     const transport = new KiroCliChatTransport({ runner })
 
     expect(transport.generate(request)).rejects.toThrow("not logged in")
+    try {
+      await transport.generate(request)
+    } catch (error) {
+      expect((error as { code?: string; status?: number }).code).toBe("KIRO_AUTH_ERROR")
+      expect((error as { code?: string; status?: number }).status).toBe(401)
+    }
   })
 })
