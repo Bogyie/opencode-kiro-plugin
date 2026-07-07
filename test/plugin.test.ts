@@ -75,9 +75,10 @@ describe("Kiro plugin", () => {
 
     expect(config.provider.kiro.name).toBe("Kiro")
     expect(config.provider.kiro.npm).toBe("@ai-sdk/openai-compatible")
-    expect(config.provider.kiro.api).toBe("https://custom.example")
+    expect(config.provider.kiro.api.startsWith("http://127.0.0.1:")).toBe(true)
     expect(config.provider.kiro.models.auto.name).toBe("Custom Auto")
     expect(config.provider.kiro.models["claude-sonnet-4.6"]).toBeUndefined()
+    await hooks.dispose?.()
   })
 
   test("injects only explicit extra model presets and lets user config override them", async () => {
@@ -104,36 +105,55 @@ describe("Kiro plugin", () => {
 
     expect(config.provider.kiro.models["claude-opus-4-9"].name).toBe("User Opus")
     expect(config.provider.kiro.models["claude-sonnet-4.6"]).toBeUndefined()
+    await hooks.dispose?.()
   })
 
-  test("provider hook adds OpenAI-compatible API metadata to models", async () => {
+  test("provider hook adds OpenAI-compatible API metadata only to discovered or configured models", async () => {
     const hooks = await createKiroPlugin()(input, { ...withoutDiscovery, region: "eu-central-1" })
+    const config: any = {
+      provider: {
+        kiro: {
+          models: {
+            auto: { name: "Auto" },
+          },
+        },
+      },
+    }
+    await hooks.config?.(config)
     const models = await hooks.provider?.models?.(
       {
         id: "kiro",
         name: "Kiro",
         models: {
           auto: { name: "Auto" },
+          "claude-fable-5": { name: "Stale Fable" },
         },
       } as any,
       {},
     )
 
-    expect(models?.auto?.api).toEqual({
-      id: "auto",
-      npm: "@ai-sdk/openai-compatible",
-      url: "https://q.eu-central-1.amazonaws.com",
-    })
+    expect(models?.auto?.api.id).toBe("auto")
+    expect(models?.auto?.api.npm).toBe("@ai-sdk/openai-compatible")
+    expect(models?.auto?.api.url.startsWith("http://127.0.0.1:")).toBe(true)
     expect(models?.["claude-fable-5"]).toBeUndefined()
+    await hooks.dispose?.()
   })
 
-  test("provider hook uses custom endpoint for provider API metadata", async () => {
+  test("provider hook uses local OpenAI-compatible endpoint for provider API metadata", async () => {
     const hooks = await createKiroPlugin()(input, {
       ...withoutDiscovery,
       region: "eu-central-1",
       endpoint: "https://custom.example",
     })
-    const config: any = {}
+    const config: any = {
+      provider: {
+        kiro: {
+          models: {
+            auto: { name: "Auto" },
+          },
+        },
+      },
+    }
 
     await hooks.config?.(config)
     const models = await hooks.provider?.models?.(
@@ -147,8 +167,9 @@ describe("Kiro plugin", () => {
       {},
     )
 
-    expect(config.provider.kiro.api).toBe("https://custom.example")
-    expect(models?.auto?.api.url).toBe("https://custom.example")
+    expect(config.provider.kiro.api.startsWith("http://127.0.0.1:")).toBe(true)
+    expect(models?.auto?.api.url.startsWith("http://127.0.0.1:")).toBe(true)
+    await hooks.dispose?.()
   })
 
   test("provider hook can discover models from a configured command", async () => {
@@ -173,12 +194,11 @@ describe("Kiro plugin", () => {
       context: 123456,
       output: 64_000,
     })
-    expect(models?.["new-model-1"]?.api).toEqual({
-      id: "new-model-1",
-      npm: "@ai-sdk/openai-compatible",
-      url: "https://q.us-east-1.amazonaws.com",
-    })
+    expect(models?.["new-model-1"]?.api.id).toBe("new-model-1")
+    expect(models?.["new-model-1"]?.api.npm).toBe("@ai-sdk/openai-compatible")
+    expect(models?.["new-model-1"]?.api.url.startsWith("http://127.0.0.1:")).toBe(true)
     expect(models?.["claude-fable-5"]).toBeUndefined()
+    await hooks.dispose?.()
   })
 
   test("auth loader uses KIRO_API_KEY without requiring stored OpenCode auth", async () => {

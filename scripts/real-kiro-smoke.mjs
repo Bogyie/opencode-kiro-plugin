@@ -71,14 +71,37 @@ async function main() {
 
   const selectedModel = modelIds.includes("claude-sonnet-4.5") ? "claude-sonnet-4.5" : modelIds.includes("auto") ? "auto" : modelIds[0]
   assert(selectedModel, "no model selected for real smoke")
+
+  const config = {}
+  await plugin.config?.(config)
+  const localApi = config.provider?.kiro?.api
+  assert(typeof localApi === "string" && localApi.startsWith("http://127.0.0.1:"), `plugin did not expose a local API URL: ${localApi}`)
+  const localHttpResponse = await globalThis.fetch(`${localApi}/chat/completions`, {
+    method: "POST",
+    headers: {
+      authorization: "Bearer kiro-plugin-local-transport",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model: selectedModel,
+      messages: [{ role: "user", content: "Answer in one short Korean sentence: what is 2+2?" }],
+    }),
+  })
+  const localHttpJson = await localHttpResponse.json()
+  assert(localHttpResponse.status === 200, `local HTTP response failed: ${JSON.stringify(localHttpJson)}`)
+  const localHttpText = localHttpJson.choices?.[0]?.message?.content ?? ""
+  assert(localHttpText.trim(), "local HTTP response did not contain assistant content")
+  assert(localHttpText.includes("4"), `local HTTP response did not answer the arithmetic prompt: ${localHttpText}`)
+  console.log(`local HTTP assistant response: ${localHttpText}`)
+
   const cache = new ModelCache(60)
   cache.update(models)
-  const fetch = createKiroFetch({
+  const adapterFetch = createKiroFetch({
     resolver: new ModelResolver({ cache }),
     transport: new KiroCliChatTransport({ requestTimeoutMs: 120_000 }),
   })
 
-  const nonStreaming = await fetch("https://q.us-east-1.amazonaws.com/v1/chat/completions", {
+  const nonStreaming = await adapterFetch("https://q.us-east-1.amazonaws.com/v1/chat/completions", {
     method: "POST",
     body: JSON.stringify({
       model: selectedModel,
@@ -92,7 +115,7 @@ async function main() {
   assert(nonStreamingText.includes("4"), `non-stream response did not answer the arithmetic prompt: ${nonStreamingText}`)
   console.log(`non-stream assistant response: ${nonStreamingText}`)
 
-  const streaming = await fetch("https://q.us-east-1.amazonaws.com/v1/chat/completions", {
+  const streaming = await adapterFetch("https://q.us-east-1.amazonaws.com/v1/chat/completions", {
     method: "POST",
     body: JSON.stringify({
       model: selectedModel,
@@ -106,6 +129,7 @@ async function main() {
   assert(streamingText.trim(), "stream response did not reconstruct assistant content")
   assert(streamingText.includes("4"), `stream response did not answer the arithmetic prompt: ${streamingText}`)
   console.log(`stream assistant response: ${streamingText}`)
+  await plugin.dispose?.()
 }
 
 main().catch((error) => {

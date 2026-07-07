@@ -6,7 +6,7 @@ import { detectAuth, resolveApiKey } from "./auth.js"
 import { KiroCliChatTransport } from "./cli-transport.js"
 import { loadOptions } from "./config.js"
 import type { KiroPluginOptions } from "./config.js"
-import { createKiroFetch } from "./fetch-adapter.js"
+import { createKiroFetch, type KiroTransport } from "./fetch-adapter.js"
 import { startLocalKiroServer, type LocalKiroServer } from "./local-server.js"
 import { ModelCache } from "./model-cache.js"
 import { refreshModelCacheFromCommand } from "./model-discovery.js"
@@ -16,16 +16,6 @@ import type { KiroTransportOptions } from "./kiro-transport.js"
 import type { ProviderModelConfig } from "./models.js"
 
 type MutableConfig = Record<string, any>
-
-function mergeModels(
-  extraModels: Readonly<Record<string, Record<string, unknown>>>,
-  existing: Record<string, unknown> | undefined,
-): Record<string, unknown> {
-  return {
-    ...extraModels,
-    ...(existing ?? {}),
-  }
-}
 
 function discoveredProviderModels(cache: ModelCache): Record<string, ProviderModelConfig> {
   return Object.fromEntries(
@@ -44,6 +34,43 @@ function discoveredProviderModels(cache: ModelCache): Record<string, ProviderMod
       },
     ]),
   )
+}
+
+function modelRecord(value: unknown): Record<string, Record<string, unknown>> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {}
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).filter(
+      (entry): entry is [string, Record<string, unknown>] =>
+        Boolean(entry[0]) && Boolean(entry[1]) && typeof entry[1] === "object" && !Array.isArray(entry[1]),
+    ),
+  )
+}
+
+function bearerToken(init: RequestInit | undefined): string | undefined {
+  const header = new Headers(init?.headers).get("authorization")
+  const match = header?.match(/^Bearer\s+(.+)$/i)
+  return match?.[1] || undefined
+}
+
+function localTransport(options: KiroPluginOptions, accessToken?: string): KiroTransport | undefined {
+  if (options.backend === "acp") return new KiroAcpTransport(acpTransportOptions(options))
+  if (options.backend === "cli-chat") {
+    return new KiroCliChatTransport({
+      trustAllTools: options.trustAllTools,
+      ...(options.requestTimeoutMs ? { requestTimeoutMs: options.requestTimeoutMs } : {}),
+    })
+  }
+  const apiKey = accessToken || process.env.KIRO_API_KEY
+  if (apiKey && apiKey !== "kiro-plugin-local-transport") {
+    return new CodeWhispererKiroTransport(fetchTransportOptions(options, apiKey))
+  }
+  if (options.backend === "auto") {
+    return new KiroCliChatTransport({
+      trustAllTools: options.trustAllTools,
+      ...(options.requestTimeoutMs ? { requestTimeoutMs: options.requestTimeoutMs } : {}),
+    })
+  }
+  return undefined
 }
 
 export function acpTransportOptions(options: Pick<KiroPluginOptions, "requestTimeoutMs" | "trustAllTools">): KiroAcpTransportOptions {
@@ -72,9 +99,10 @@ export function fetchTransportOptions(
 export function createKiroPlugin(): Plugin {
   return async (_input, rawOptions): Promise<Hooks> => {
     const options = loadOptions(rawOptions)
-    const baseURL = options.endpoint ?? `https://q.${options.region}.amazonaws.com`
     const modelCache = new ModelCache(options.modelCacheTtlSeconds)
     let localServer: LocalKiroServer | undefined
+    let configuredModels: Record<string, Record<string, unknown>> = { ...options.extraModels }
+    const disabledModels = new Set(options.disabledModels.map(normalizeModelName))
     if (Object.keys(options.extraModels).length > 0) {
       modelCache.update(Object.keys(options.extraModels).map((id) => ({ id: normalizeModelName(id) })))
     }
@@ -107,6 +135,18 @@ export function createKiroPlugin(): Plugin {
       disabledModels: options.disabledModels,
       disablePassThrough: options.disableModelPassThrough,
     })
+    const ensureLocalServer = async () => {
+      if (localServer) return localServer
+      const localFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+        const transport = localTransport(options, bearerToken(init))
+        return createKiroFetch({
+          resolver,
+          ...(transport ? { transport } : {}),
+        })(input, init)
+      }
+      localServer = await startLocalKiroServer(localFetch)
+      return localServer
+    }
 
     return {
       dispose: async () => {
@@ -114,15 +154,21 @@ export function createKiroPlugin(): Plugin {
         localServer = undefined
       },
       config: async (config: MutableConfig) => {
+        await discoverIfStale()
         config.provider ??= {}
         config.provider[options.providerID] ??= {}
 
         const provider = config.provider[options.providerID]
+        const server = await ensureLocalServer()
+        configuredModels = {
+          ...options.extraModels,
+          ...modelRecord(provider.models),
+        }
         provider.name ??= "Kiro"
         provider.npm = "@ai-sdk/openai-compatible"
-        provider.api ??= baseURL
+        provider.api = server.baseURL
         provider.options ??= {}
-        provider.models = mergeModels(options.extraModels, provider.models)
+        provider.models = configuredModels
       },
       auth: {
         provider: options.providerID,
@@ -148,30 +194,10 @@ export function createKiroPlugin(): Plugin {
         loader: async (auth) => {
           await discoverIfStale()
           const apiKey = await resolveApiKey(auth)
-          const transport =
-            options.backend === "acp"
-              ? new KiroAcpTransport(acpTransportOptions(options))
-            : options.backend === "cli-chat"
-              ? new KiroCliChatTransport({
-                  trustAllTools: options.trustAllTools,
-                  ...(options.requestTimeoutMs ? { requestTimeoutMs: options.requestTimeoutMs } : {}),
-                })
-              : apiKey
-                ? new CodeWhispererKiroTransport(fetchTransportOptions(options, apiKey))
-                : options.backend === "auto"
-                  ? new KiroCliChatTransport({
-                      trustAllTools: options.trustAllTools,
-                      ...(options.requestTimeoutMs ? { requestTimeoutMs: options.requestTimeoutMs } : {}),
-                    })
-                  : undefined
-          const localFetch = createKiroFetch({
-            resolver,
-            ...(transport ? { transport } : {}),
-          })
-          localServer ??= await startLocalKiroServer(localFetch)
+          const server = await ensureLocalServer()
           return {
             apiKey: apiKey || "kiro-plugin-local-transport",
-            baseURL: localServer.baseURL,
+            baseURL: server.baseURL,
           }
         },
       },
@@ -208,23 +234,36 @@ export function createKiroPlugin(): Plugin {
         id: options.providerID,
         models: async (provider) => {
           await discoverIfStale()
-          const models = {
-            ...discoveredProviderModels(modelCache),
-            ...(provider.models ?? {}),
-          }
+          const discovered = discoveredProviderModels(modelCache)
+          const existing = modelRecord(provider.models)
+          const allowedModelIDs = new Set([
+            ...Object.keys(discovered),
+            ...Object.keys(configuredModels),
+            ...Object.keys(options.hiddenModels),
+          ])
+          const server = await ensureLocalServer()
           return Object.fromEntries(
-            Object.entries(models).map(([id, model]) => [
-              id,
-              {
-                ...(model as Record<string, unknown>),
-                api: {
-                  ...((model as { api?: Record<string, unknown> }).api ?? {}),
+            [...allowedModelIDs]
+              .filter((id) => !disabledModels.has(normalizeModelName(id)))
+              .map((id) => {
+                const model = {
+                  ...(discovered[id] ?? {}),
+                  ...(configuredModels[id] ?? {}),
+                  ...(existing[id] ?? {}),
+                }
+                return [
                   id,
-                  npm: "@ai-sdk/openai-compatible",
-                  url: baseURL,
-                },
-              },
-            ]),
+                  {
+                    ...model,
+                    api: {
+                      ...((model as { api?: Record<string, unknown> }).api ?? {}),
+                      id,
+                      npm: "@ai-sdk/openai-compatible",
+                      url: server.baseURL,
+                    },
+                  },
+                ]
+              }),
           ) as any
         },
       },
