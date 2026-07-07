@@ -48,11 +48,15 @@ describe("ACP JSON-RPC client", () => {
     })
   })
 
-  test("ignores notifications and unknown response ids", async () => {
+  test("emits notifications and ignores unknown response ids", async () => {
+    const notifications: unknown[] = []
     const client = new AcpJsonRpcClient({
       send() {
         return undefined
       },
+    })
+    client.onNotification((notification) => {
+      notifications.push(notification)
     })
 
     const promise = client.request("session/new")
@@ -61,6 +65,7 @@ describe("ACP JSON-RPC client", () => {
     client.receive({ jsonrpc: "2.0", id: 99, result: "ignored" })
     client.receive({ jsonrpc: "2.0", id: 1, result: "done" })
 
+    expect(notifications).toEqual([{ jsonrpc: "2.0", method: "progress", params: { value: 1 } }])
     await expect(promise).resolves.toBe("done")
   })
 

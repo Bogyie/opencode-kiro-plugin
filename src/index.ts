@@ -1,7 +1,9 @@
 import { KiroPlugin } from "./plugin.js"
 
-export { AcpJsonRpcClient, decodeJsonRpc, encodeJsonRpc } from "./acp-client.js"
+export { AcpJsonRpcClient, createAcpStdioClient, decodeJsonRpc, encodeJsonRpc } from "./acp-client.js"
+export type { AcpConnection, AcpNotificationHandler, AcpStdioClientOptions, JsonRpcMessage } from "./acp-client.js"
 export { KiroAcpTransport } from "./acp-transport.js"
+export type { AcpSessionClient, KiroAcpTransportOptions } from "./acp-transport.js"
 export { createKiroPlugin, KiroPlugin } from "./plugin.js"
 export { detectAuth, redacted, resolveApiKey } from "./auth.js"
 export { cliChatArgs, KiroCliChatTransport, promptForCli } from "./cli-transport.js"

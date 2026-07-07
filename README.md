@@ -2,7 +2,7 @@
 
 OpenCode server plugin that registers Kiro as an OpenAI-compatible provider and adapts requests to Kiro backends.
 
-Status: early implementation. The CodeWhisperer streaming transport, CLI chat fallback, model resolver, multimodal request mapping, streaming text, and tool-call chunk mapping are implemented with unit tests. The ACP backend currently exposes a JSON-RPC client and a selectable skeleton transport, but the full Kiro ACP session flow is not complete yet.
+Status: early implementation. The CodeWhisperer streaming transport, CLI chat fallback, model resolver, multimodal request mapping, streaming text, and tool-call chunk mapping are implemented with unit tests. The ACP backend implements JSON-RPC stdio framing plus initialize/session/model/prompt flow for non-streaming responses; full ACP streaming/tool event parity is still in progress.
 
 ## Install
 
@@ -67,7 +67,7 @@ Supported values:
 - `auto`: use CodeWhisperer fetch transport when an API key is available; otherwise use CLI chat fallback.
 - `fetch`: require the direct Kiro/CodeWhisperer fetch path. If no usable auth is available, requests fail with a structured backend/auth error.
 - `cli-chat`: call `kiro-cli chat --no-interactive`. This is official and stable, but Kiro CLI does not currently expose a guaranteed per-request model flag.
-- `acp`: select the ACP skeleton. JSON-RPC framing is implemented, but full Kiro ACP session transport currently returns `KIRO_ACP_NOT_IMPLEMENTED`.
+- `acp`: launch `kiro-cli acp`, initialize a session, optionally set the requested model, send the prompt, and collect `AgentMessageChunk` notifications until `TurnEnd`.
 
 ## Model Churn Handling
 
@@ -123,7 +123,8 @@ This keeps new Kiro model ids usable before the package is updated. Use `extraMo
 - `KIRO_AUTH_ERROR`: login or API key is missing/invalid.
 - `KIRO_RATE_LIMIT`: upstream quota or rate limit was hit.
 - `KIRO_NETWORK_ERROR`: timeout or connectivity issue to Kiro/AWS endpoints.
-- `KIRO_ACP_NOT_IMPLEMENTED`: ACP mode is selected, but the full session transport has not been implemented yet.
+- `KIRO_ACP_TIMEOUT`: ACP did not send a `TurnEnd` notification before the prompt timeout.
+- `KIRO_ACP_PROCESS_ERROR` or `KIRO_ACP_PROCESS_EXITED`: `kiro-cli acp` could not start or exited while a request was pending.
 
 For local checks:
 

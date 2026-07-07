@@ -1,4 +1,5 @@
 import { KiroPluginError } from "./errors.js"
+import { spawn } from "node:child_process"
 
 export type JsonRpcId = string | number
 
@@ -36,7 +37,10 @@ export type JsonRpcMessage = JsonRpcRequest | JsonRpcNotification | JsonRpcRespo
 
 export interface AcpConnection {
   send(message: JsonRpcRequest): void | Promise<void>
+  close?(): void
 }
+
+export type AcpNotificationHandler = (message: JsonRpcNotification) => void
 
 interface PendingRequest {
   readonly resolve: (value: unknown) => void
@@ -59,6 +63,10 @@ function hasId(message: JsonRpcMessage): message is JsonRpcResponse {
   return "id" in message
 }
 
+function isNotification(message: JsonRpcMessage): message is JsonRpcNotification {
+  return "method" in message && !("id" in message)
+}
+
 function hasError(message: JsonRpcResponse): message is JsonRpcFailure {
   return "error" in message
 }
@@ -67,6 +75,7 @@ export class AcpJsonRpcClient {
   #nextId = 1
   readonly #connection: AcpConnection
   readonly #pending = new Map<JsonRpcId, PendingRequest>()
+  readonly #notifications = new Set<AcpNotificationHandler>()
 
   constructor(connection: AcpConnection) {
     this.#connection = connection
@@ -92,6 +101,11 @@ export class AcpJsonRpcClient {
   }
 
   receive(message: JsonRpcMessage): void {
+    if (isNotification(message)) {
+      for (const handler of this.#notifications) handler(message)
+      return
+    }
+
     if (!hasId(message)) return
 
     const pending = this.#pending.get(message.id)
@@ -112,4 +126,70 @@ export class AcpJsonRpcClient {
     }
     this.#pending.clear()
   }
+
+  onNotification(handler: AcpNotificationHandler): () => void {
+    this.#notifications.add(handler)
+    return () => {
+      this.#notifications.delete(handler)
+    }
+  }
+
+  close(): void {
+    this.#connection.close?.()
+  }
+}
+
+export interface AcpStdioClientOptions {
+  readonly command?: string
+  readonly args?: ReadonlyArray<string>
+  readonly cwd?: string
+  readonly env?: NodeJS.ProcessEnv
+}
+
+export function createAcpStdioClient(options: AcpStdioClientOptions = {}): AcpJsonRpcClient {
+  let client: AcpJsonRpcClient | undefined
+  const child = spawn(options.command ?? "kiro-cli", [...(options.args ?? ["acp"])], {
+    cwd: options.cwd,
+    env: options.env ?? process.env,
+    stdio: ["pipe", "pipe", "pipe"],
+  })
+  const connection: AcpConnection = {
+    send(message) {
+      if (!child.stdin?.writable) {
+        throw new KiroPluginError("ACP process stdin is not writable.", "KIRO_ACP_PROCESS_ERROR", 502)
+      }
+      child.stdin.write(encodeJsonRpc(message))
+    },
+    close() {
+      child.kill()
+    },
+  }
+  client = new AcpJsonRpcClient(connection)
+
+  let stdout = ""
+  child.stdout?.on("data", (chunk: Buffer) => {
+    stdout += chunk.toString("utf8")
+    for (;;) {
+      const index = stdout.indexOf("\n")
+      if (index < 0) break
+      const line = stdout.slice(0, index).trim()
+      stdout = stdout.slice(index + 1)
+      if (!line) continue
+      try {
+        client?.receive(decodeJsonRpc(line))
+      } catch (error) {
+        client?.rejectAll(error)
+      }
+    }
+  })
+  child.on("error", (error) => {
+    client?.rejectAll(new KiroPluginError(error.message, "KIRO_ACP_PROCESS_ERROR", 502))
+  })
+  child.on("exit", (code, signal) => {
+    client?.rejectAll(
+      new KiroPluginError(`ACP process exited${code === null ? "" : ` with code ${code}`}${signal ? ` and signal ${signal}` : ""}.`, "KIRO_ACP_PROCESS_EXITED", 502),
+    )
+  })
+
+  return client
 }
