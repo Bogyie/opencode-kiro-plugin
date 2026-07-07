@@ -1,4 +1,6 @@
 import type { Hooks, Plugin } from "@opencode-ai/plugin"
+import { tool } from "@opencode-ai/plugin"
+import { detectAuth, resolveApiKey } from "./auth.js"
 import { loadOptions } from "./config.js"
 import { FALLBACK_MODELS } from "./models.js"
 
@@ -50,12 +52,40 @@ export function createKiroPlugin(): Plugin {
           },
         ],
         loader: async (auth) => {
-          const credential = await auth()
+          const apiKey = await resolveApiKey(auth)
           return {
-            apiKey: credential.type === "api" ? credential.key : "",
+            apiKey,
             baseURL,
           }
         },
+      },
+      tool: {
+        kiro_status: tool({
+          description: "Show Kiro plugin backend, auth, region, and model fallback status.",
+          args: {},
+          execute: async () => {
+            const auth = await detectAuth()
+            return {
+              title: "Kiro status",
+              output: [
+                `provider: ${options.providerID}`,
+                `backend: ${options.backend}`,
+                `region: ${auth.region}`,
+                `auth: ${auth.method}`,
+                `authenticated: ${auth.authenticated ? "yes" : "no"}`,
+                `models: ${Object.keys(FALLBACK_MODELS).length} fallback presets`,
+                auth.message,
+              ].join("\n"),
+              metadata: {
+                providerID: options.providerID,
+                backend: options.backend,
+                region: auth.region,
+                authMethod: auth.method,
+                authenticated: auth.authenticated,
+              },
+            }
+          },
+        }),
       },
       provider: {
         id: options.providerID,

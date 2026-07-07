@@ -61,4 +61,31 @@ describe("Kiro plugin", () => {
       url: "https://q.eu-central-1.amazonaws.com",
     })
   })
+
+  test("auth loader uses KIRO_API_KEY without requiring stored OpenCode auth", async () => {
+    const original = process.env.KIRO_API_KEY
+    process.env.KIRO_API_KEY = "env-key"
+    try {
+      const hooks = await createKiroPlugin()(input, undefined)
+      const loaded = await hooks.auth?.loader?.(
+        async () => {
+          throw new Error("not connected")
+        },
+        {} as any,
+      )
+
+      expect(loaded?.apiKey).toBe("env-key")
+      expect(loaded?.baseURL).toBe("https://q.us-east-1.amazonaws.com")
+    } finally {
+      if (original === undefined) delete process.env.KIRO_API_KEY
+      else process.env.KIRO_API_KEY = original
+    }
+  })
+
+  test("provides kiro_status diagnostic tool", async () => {
+    const hooks = await createKiroPlugin()(input, { backend: "fetch" })
+
+    expect(hooks.tool?.kiro_status).toBeDefined()
+    expect(hooks.tool?.kiro_status?.description).toContain("Kiro plugin")
+  })
 })

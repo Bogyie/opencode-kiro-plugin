@@ -11,8 +11,8 @@
     "docs"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "test": "bun test",
+    "build": "tsc -p tsconfig.build.json",
+    "test": "bun test test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [
