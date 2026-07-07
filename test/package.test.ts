@@ -11,6 +11,7 @@ const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.me
       import?: string
     }
   }
+  scripts?: Record<string, string>
   opencode?: {
     type?: string
     hooks?: string[]
@@ -36,5 +37,12 @@ describe("package metadata", () => {
       types: "./dist/index.d.ts",
       import: "./dist/index.js",
     })
+  })
+
+  test("cleans and smoke-tests build artifacts before packaging", () => {
+    expect(packageJson.scripts?.clean).toBe("node scripts/clean-dist.mjs")
+    expect(packageJson.scripts?.build).toBe("npm run clean && tsc -p tsconfig.build.json")
+    expect(packageJson.scripts?.prepack).toBe("npm run build")
+    expect(packageJson.scripts?.["smoke:package"]).toBe("npm run build && node scripts/smoke-package.mjs")
   })
 })

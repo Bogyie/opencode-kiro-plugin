@@ -20,7 +20,10 @@
     "examples"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "clean": "node scripts/clean-dist.mjs",
+    "build": "npm run clean && tsc -p tsconfig.build.json",
+    "prepack": "npm run build",
+    "smoke:package": "npm run build && node scripts/smoke-package.mjs",
     "test": "bun test test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },

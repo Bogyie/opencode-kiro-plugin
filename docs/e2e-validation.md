@@ -168,6 +168,7 @@ Run these local checks after any E2E pass:
 npm test
 npm run typecheck
 npm run build
+npm run smoke:package
 npm pack --dry-run
 ```
 
