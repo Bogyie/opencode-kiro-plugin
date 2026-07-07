@@ -5,6 +5,7 @@ import { loadOptions } from "./config.js"
 import { createKiroFetch } from "./fetch-adapter.js"
 import { ModelCache } from "./model-cache.js"
 import { ModelResolver, normalizeModelName } from "./model-resolver.js"
+import { CodeWhispererKiroTransport } from "./kiro-transport.js"
 import { FALLBACK_MODELS } from "./models.js"
 
 type MutableConfig = Record<string, any>
@@ -65,10 +66,19 @@ export function createKiroPlugin(): Plugin {
         ],
         loader: async (auth) => {
           const apiKey = await resolveApiKey(auth)
+          const transport = apiKey
+            ? new CodeWhispererKiroTransport({
+                region: options.region,
+                accessToken: apiKey,
+              })
+            : undefined
           return {
             apiKey,
             baseURL,
-            fetch: createKiroFetch({ resolver }),
+            fetch: createKiroFetch({
+              resolver,
+              ...(transport ? { transport } : {}),
+            }),
           }
         },
       },
