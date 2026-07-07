@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { DEFAULT_MODEL_CACHE_TTL_SECONDS, loadOptions } from "../src/config.js"
+import { DEFAULT_MAX_ATTEMPTS, DEFAULT_MODEL_CACHE_TTL_SECONDS, loadOptions } from "../src/config.js"
 
 describe("loadOptions", () => {
   test("loads defaults from empty input", () => {
@@ -9,6 +9,7 @@ describe("loadOptions", () => {
       backend: "auto",
       modelDiscovery: "auto",
       modelCacheTtlSeconds: DEFAULT_MODEL_CACHE_TTL_SECONDS,
+      maxAttempts: DEFAULT_MAX_ATTEMPTS,
       modelAliases: {},
       extraModels: {},
       hiddenModels: {},
@@ -26,6 +27,8 @@ describe("loadOptions", () => {
         backend: "fetch",
         modelDiscovery: "off",
         modelCacheTtlSeconds: 30,
+        requestTimeoutMs: 1000,
+        maxAttempts: 5,
         modelAliases: { sonnet: "claude-sonnet-4.6", bad: 123 },
         extraModels: {
           "claude-opus-4-9": { name: "Claude Opus 4.9" },
@@ -42,6 +45,8 @@ describe("loadOptions", () => {
       backend: "fetch",
       modelDiscovery: "off",
       modelCacheTtlSeconds: 30,
+      requestTimeoutMs: 1000,
+      maxAttempts: 5,
       modelAliases: { sonnet: "claude-sonnet-4.6" },
       extraModels: { "claude-opus-4-9": { name: "Claude Opus 4.9" } },
       hiddenModels: { legacy: "INTERNAL" },
@@ -49,5 +54,10 @@ describe("loadOptions", () => {
       disableModelPassThrough: true,
       trustAllTools: true,
     })
+  })
+
+  test("keeps maxAttempts as a positive integer", () => {
+    expect(loadOptions({ maxAttempts: 2.8 }).maxAttempts).toBe(2)
+    expect(loadOptions({ maxAttempts: 0.5 }).maxAttempts).toBe(DEFAULT_MAX_ATTEMPTS)
   })
 })

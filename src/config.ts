@@ -7,6 +7,8 @@ export interface KiroPluginOptions {
   readonly backend: BackendMode
   readonly modelDiscovery: ModelDiscoveryMode
   readonly modelCacheTtlSeconds: number
+  readonly requestTimeoutMs?: number
+  readonly maxAttempts: number
   readonly modelAliases: Readonly<Record<string, string>>
   readonly extraModels: Readonly<Record<string, Record<string, unknown>>>
   readonly hiddenModels: Readonly<Record<string, string>>
@@ -18,6 +20,7 @@ export interface KiroPluginOptions {
 export const DEFAULT_PROVIDER_ID = "kiro"
 export const DEFAULT_REGION = "us-east-1"
 export const DEFAULT_MODEL_CACHE_TTL_SECONDS = 6 * 60 * 60
+export const DEFAULT_MAX_ATTEMPTS = 3
 
 const BACKENDS = new Set<BackendMode>(["auto", "fetch", "cli-chat", "acp"])
 const DISCOVERY_MODES = new Set<ModelDiscoveryMode>(["auto", "off"])
@@ -51,6 +54,16 @@ function positiveNumber(value: unknown, fallback: number): number {
   return value
 }
 
+function positiveInteger(value: unknown, fallback: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 1) return fallback
+  return Math.max(1, Math.floor(value))
+}
+
+function optionalPositiveNumber(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return undefined
+  return value
+}
+
 export function loadOptions(raw: unknown = {}): KiroPluginOptions {
   const input = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {}
   const backend: BackendMode =
@@ -59,6 +72,7 @@ export function loadOptions(raw: unknown = {}): KiroPluginOptions {
     typeof input.modelDiscovery === "string" && DISCOVERY_MODES.has(input.modelDiscovery as ModelDiscoveryMode)
       ? (input.modelDiscovery as ModelDiscoveryMode)
       : "auto"
+  const requestTimeoutMs = optionalPositiveNumber(input.requestTimeoutMs)
 
   return {
     providerID: typeof input.providerID === "string" && input.providerID ? input.providerID : DEFAULT_PROVIDER_ID,
@@ -66,6 +80,8 @@ export function loadOptions(raw: unknown = {}): KiroPluginOptions {
     backend,
     modelDiscovery,
     modelCacheTtlSeconds: positiveNumber(input.modelCacheTtlSeconds, DEFAULT_MODEL_CACHE_TTL_SECONDS),
+    ...(requestTimeoutMs ? { requestTimeoutMs } : {}),
+    maxAttempts: positiveInteger(input.maxAttempts, DEFAULT_MAX_ATTEMPTS),
     modelAliases: stringRecord(input.modelAliases),
     extraModels: objectRecord(input.extraModels),
     hiddenModels: stringRecord(input.hiddenModels),

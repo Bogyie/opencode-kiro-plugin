@@ -55,7 +55,9 @@ Configure the backend through plugin options:
       "file:/absolute/path/to/opencode-kiro-plugin",
       {
         "backend": "auto",
-        "region": "us-east-1"
+        "region": "us-east-1",
+        "maxAttempts": 3,
+        "requestTimeoutMs": 120000
       }
     ]
   ]
@@ -125,6 +127,8 @@ This keeps new Kiro model ids usable before the package is updated. Use `extraMo
 - `KIRO_NETWORK_ERROR`: timeout or connectivity issue to Kiro/AWS endpoints.
 - `KIRO_ACP_TIMEOUT`: ACP did not send a `TurnEnd` notification before the prompt timeout.
 - `KIRO_ACP_PROCESS_ERROR` or `KIRO_ACP_PROCESS_EXITED`: `kiro-cli acp` could not start or exited while a request was pending.
+
+Direct fetch mode uses AWS SDK standard retry behavior. Tune `maxAttempts` and `requestTimeoutMs` if you need stricter failure boundaries in automation.
 
 For local checks:
 

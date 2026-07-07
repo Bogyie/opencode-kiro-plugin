@@ -6,6 +6,7 @@ import {
   type ChatResponseStream,
 } from "@aws/codewhisperer-streaming-client"
 import type { Command } from "@smithy/smithy-client"
+import { KiroPluginError } from "./errors.js"
 import type { KiroTransport } from "./fetch-adapter.js"
 import type { KiroGenerateRequest } from "./request-adapter.js"
 import type { KiroGenerateResponse, KiroStreamChunk, KiroStreamEvent } from "./response-adapter.js"
@@ -17,6 +18,8 @@ export interface KiroTransportOptions {
   readonly profileArn?: string
   readonly userAgent?: string
   readonly agentMode?: string
+  readonly maxAttempts?: number
+  readonly requestTimeoutMs?: number
 }
 
 export interface CodeWhispererClientLike {
@@ -35,7 +38,7 @@ export function createCodeWhispererClient(options: KiroTransportOptions): CodeWh
     endpoint: options.endpoint ?? `https://q.${options.region}.amazonaws.com`,
     token: async () => ({ token: options.accessToken }),
     customUserAgent: [[options.userAgent ?? DEFAULT_USER_AGENT]],
-    maxAttempts: 3,
+    maxAttempts: options.maxAttempts ?? 3,
     retryMode: "standard",
   } as any)
 
@@ -213,6 +216,17 @@ async function collectChunks(chunks: AsyncIterable<KiroStreamEvent>, fallbackMod
   }
 }
 
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number | undefined, message: string): Promise<T> {
+  if (!timeoutMs) return promise
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new KiroPluginError(message, "KIRO_TIMEOUT", 504)), timeoutMs)
+  })
+  return Promise.race([promise, deadline]).finally(() => {
+    if (timer) clearTimeout(timer)
+  })
+}
+
 export class CodeWhispererKiroTransport implements KiroTransport {
   readonly #options: KiroTransportOptions
   readonly #client: CodeWhispererClientLike
@@ -228,7 +242,11 @@ export class CodeWhispererKiroTransport implements KiroTransport {
 
   async *stream(request: KiroGenerateRequest): AsyncIterable<KiroStreamEvent> {
     const input = toGenerateAssistantResponseInput(request, this.#options)
-    const output = await this.#client.send(new GenerateAssistantResponseCommand(input))
+    const output = await withTimeout(
+      this.#client.send(new GenerateAssistantResponseCommand(input)),
+      this.#options.requestTimeoutMs,
+      "Timed out waiting for Kiro response.",
+    )
     yield* streamAssistantText(output.generateAssistantResponseResponse)
   }
 

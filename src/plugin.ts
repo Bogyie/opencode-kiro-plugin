@@ -81,6 +81,8 @@ export function createKiroPlugin(): Plugin {
                 ? new CodeWhispererKiroTransport({
                     region: options.region,
                     accessToken: apiKey,
+                    maxAttempts: options.maxAttempts,
+                    ...(options.requestTimeoutMs ? { requestTimeoutMs: options.requestTimeoutMs } : {}),
                   })
                 : options.backend === "auto"
                   ? new KiroCliChatTransport({ trustAllTools: options.trustAllTools })

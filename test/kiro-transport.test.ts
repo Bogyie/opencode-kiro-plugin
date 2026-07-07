@@ -176,6 +176,47 @@ describe("CodeWhispererKiroTransport", () => {
     })
   })
 
+  test("passes retry and timeout options to injected client factory", () => {
+    let seen: unknown
+    const client: CodeWhispererClientLike = {
+      async send() {
+        throw new Error("not used")
+      },
+    }
+
+    new CodeWhispererKiroTransport(
+      { region: "us-east-1", accessToken: "token", maxAttempts: 5, requestTimeoutMs: 1000 },
+      (options) => {
+        seen = options
+        return client
+      },
+    )
+
+    expect(seen).toMatchObject({
+      region: "us-east-1",
+      accessToken: "token",
+      maxAttempts: 5,
+      requestTimeoutMs: 1000,
+    })
+  })
+
+  test("times out waiting for initial GenerateAssistantResponse response", async () => {
+    const client: CodeWhispererClientLike = {
+      async send() {
+        return new Promise(() => undefined)
+      },
+    }
+    const transport = new CodeWhispererKiroTransport(
+      { region: "us-east-1", accessToken: "token", requestTimeoutMs: 1 },
+      () => client,
+    )
+
+    await expect(transport.generate(request)).rejects.toMatchObject({
+      code: "KIRO_TIMEOUT",
+      status: 504,
+    })
+  })
+
   test("streams chunks through injected client", async () => {
     const client: CodeWhispererClientLike = {
       async send() {
