@@ -17,6 +17,8 @@ import type { ProviderModelConfig } from "./models.js"
 
 type MutableConfig = Record<string, any>
 type EffectiveBackend = "fetch" | "cli-chat" | "acp" | "none"
+const PLACEHOLDER_MODEL_ID = "auto"
+const PLACEHOLDER_MODEL: ProviderModelConfig = { name: "Auto" }
 
 function discoveredProviderModels(cache: ModelCache): Record<string, ProviderModelConfig> {
   return Object.fromEntries(
@@ -55,7 +57,7 @@ function visibleProviderModels(
 ): Record<string, ProviderModelConfig> {
   const discovered = discoveredProviderModels(cache)
   const modelIDs = new Set([...Object.keys(discovered), ...Object.keys(configuredModels), ...Object.keys(hiddenModels)])
-  return Object.fromEntries(
+  const models = Object.fromEntries(
     [...modelIDs]
       .filter((id) => !disabledModels.has(normalizeModelName(id)))
       .map((id) => [
@@ -66,6 +68,8 @@ function visibleProviderModels(
         },
       ]),
   )
+  if (Object.keys(models).length > 0 || disabledModels.has(PLACEHOLDER_MODEL_ID)) return models
+  return { [PLACEHOLDER_MODEL_ID]: PLACEHOLDER_MODEL }
 }
 
 function bearerToken(init: RequestInit | undefined): string | undefined {
@@ -139,7 +143,7 @@ export function createKiroPlugin(): Plugin {
       if (
         options.modelDiscovery === "off" ||
         options.modelDiscoveryCommand.length === 0 ||
-        (discoveryAttempted && !modelCache.isStale())
+        discoveryAttempted
       ) {
         return
       }
@@ -148,6 +152,7 @@ export function createKiroPlugin(): Plugin {
         modelCache,
         options.modelDiscoveryCommand[0] as string,
         options.modelDiscoveryCommand.slice(1),
+        { loginOnAuthFailure: true },
       )
         .catch(() => undefined)
         .then(() => {

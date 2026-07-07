@@ -10,6 +10,7 @@ import {
   readKiroCliSessionCredential,
   redacted,
   resolveApiKey,
+  runKiroLoginFlowOnce,
   startKiroCliLogin,
   startKiroCliLoginOnce,
   type CommandRunner,
@@ -142,6 +143,31 @@ describe("auth diagnostics", () => {
     expect(second).toBe(first)
     expect(starts).toBe(1)
     await first.waitForAuth(async () => ({ ok: true, stdout: "dev@example.com", stderr: "" }))
+  })
+
+  test("shares concurrent Kiro CLI login flows", async () => {
+    const stdout = new PassThrough()
+    const stderr = new PassThrough()
+    const child = new EventEmitter() as EventEmitter & {
+      stdout: PassThrough
+      stderr: PassThrough
+    }
+    child.stdout = stdout
+    child.stderr = stderr
+    let starts = 0
+    const spawner = () => {
+      starts += 1
+      queueMicrotask(() => stdout.write("Open https://example.com/device and enter ABCD-EFGH"))
+      return child as unknown as ChildProcess
+    }
+
+    const results = await Promise.all([
+      runKiroLoginFlowOnce({ spawner, runner: async () => ({ ok: true, stdout: "dev@example.com", stderr: "" }) }),
+      runKiroLoginFlowOnce({ spawner, runner: async () => ({ ok: true, stdout: "dev@example.com", stderr: "" }) }),
+    ])
+
+    expect(results).toEqual([true, true])
+    expect(starts).toBe(1)
   })
 
   test("reads Kiro CLI session credential from SQLite rows", async () => {

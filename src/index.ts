@@ -13,6 +13,7 @@ export {
   redacted,
   regionFromProfileArn,
   resolveApiKey,
+  runKiroLoginFlowOnce,
   startKiroCliLogin,
   startKiroCliLoginOnce,
 } from "./auth.js"
@@ -32,7 +33,7 @@ export {
 export { KiroRestTransport, toKiroRestPayload } from "./kiro-rest-transport.js"
 export type { KiroRestTransportOptions } from "./kiro-rest-transport.js"
 export { ModelCache } from "./model-cache.js"
-export { discoverModelsFromCommand, parseDiscoveredModels, refreshModelCacheFromCommand } from "./model-discovery.js"
+export { discoverModelsFromCommand, isModelDiscoveryAuthFailure, parseDiscoveredModels, refreshModelCacheFromCommand } from "./model-discovery.js"
 export { ModelResolutionError, ModelResolver, normalizeModelName } from "./model-resolver.js"
 export { FALLBACK_MODELS } from "./models.js"
 export { toKiroGenerateRequest } from "./request-adapter.js"

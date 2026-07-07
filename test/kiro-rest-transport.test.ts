@@ -202,14 +202,11 @@ describe("KiroRestTransport", () => {
   })
 
   test("maps invalid bearer token responses to auth errors", async () => {
-    let loginStarts = 0
     const transport = new KiroRestTransport(
       { region: "us-east-1", accessToken: "bad-token" },
       {
+        login: async () => false,
         fetcher: async () => new Response(JSON.stringify({ message: "invalid token" }), { status: 403 }),
-        loginStarter: () => {
-          loginStarts += 1
-        },
       },
     )
 
@@ -217,17 +214,17 @@ describe("KiroRestTransport", () => {
       code: "KIRO_AUTH_ERROR",
       status: 403,
     })
-    expect(loginStarts).toBe(1)
   })
 
-  test("starts login when no direct REST credential is available", async () => {
-    let loginStarts = 0
+  test("maps missing direct REST credentials to auth errors", async () => {
+    let logins = 0
     const transport = new KiroRestTransport(
       { region: "us-east-1" },
       {
         credentialProvider: async () => undefined,
-        loginStarter: () => {
-          loginStarts += 1
+        login: async () => {
+          logins += 1
+          return false
         },
       },
     )
@@ -236,6 +233,62 @@ describe("KiroRestTransport", () => {
       code: "KIRO_AUTH_ERROR",
       status: 401,
     })
-    expect(loginStarts).toBe(1)
+    expect(logins).toBe(1)
+  })
+
+  test("waits for login and retries direct REST once after missing credentials", async () => {
+    let credentialsCalls = 0
+    let logins = 0
+    const fetches: string[] = []
+    const transport = new KiroRestTransport(
+      { region: "us-east-1" },
+      {
+        credentialProvider: async () => {
+          credentialsCalls += 1
+          if (credentialsCalls === 1) return undefined
+          return {
+            accessToken: "token-after-login",
+            profileArn: "arn:aws:codewhisperer:us-east-1:123456789012:profile/test",
+            region: "us-east-1",
+            source: "kirocli:odic:token",
+          }
+        },
+        login: async () => {
+          logins += 1
+          return true
+        },
+        fetcher: async (input) => {
+          fetches.push(String(input))
+          return streamResponse([eventFrame("assistantResponseEvent", { content: "ok" })])
+        },
+      },
+    )
+
+    await expect(transport.generate(request)).resolves.toMatchObject({ text: "ok" })
+    expect(credentialsCalls).toBe(2)
+    expect(logins).toBe(1)
+    expect(fetches).toEqual(["https://q.us-east-1.amazonaws.com/generateAssistantResponse"])
+  })
+
+  test("waits for login and retries direct REST once after rejected credentials", async () => {
+    let logins = 0
+    const statuses = [403, 200]
+    const transport = new KiroRestTransport(
+      { region: "us-east-1", accessToken: "stored-token" },
+      {
+        login: async () => {
+          logins += 1
+          return true
+        },
+        fetcher: async () => {
+          const status = statuses.shift()
+          if (status === 403) return new Response(JSON.stringify({ message: "expired token" }), { status })
+          return streamResponse([eventFrame("assistantResponseEvent", { content: "ok" })])
+        },
+      },
+    )
+
+    await expect(transport.generate(request)).resolves.toMatchObject({ text: "ok" })
+    expect(logins).toBe(1)
   })
 })

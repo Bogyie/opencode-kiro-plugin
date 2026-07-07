@@ -100,11 +100,12 @@ describe("KiroCliChatTransport", () => {
 
   test("maps cli failures to plugin errors", async () => {
     const runner: CommandRunner = async () => ({ ok: false, stdout: "", stderr: "not logged in" })
-    let loginStarts = 0
+    let logins = 0
     const transport = new KiroCliChatTransport({
       runner,
-      loginStarter: () => {
-        loginStarts += 1
+      login: async () => {
+        logins += 1
+        return false
       },
     })
 
@@ -115,7 +116,34 @@ describe("KiroCliChatTransport", () => {
       expect((error as { code?: string; status?: number }).code).toBe("KIRO_AUTH_ERROR")
       expect((error as { code?: string; status?: number }).status).toBe(401)
     }
-    expect(loginStarts).toBe(2)
+    expect(logins).toBe(2)
+  })
+
+  test("waits for login and retries cli chat once after auth failure", async () => {
+    const calls: unknown[] = []
+    let logins = 0
+    const runner: CommandRunner = async (command, args, options) => {
+      calls.push({ command, args, options })
+      if (calls.length === 1) return { ok: false, stdout: "", stderr: "not logged in" }
+      return { ok: true, stdout: "done after login\n", stderr: "" }
+    }
+    const transport = new KiroCliChatTransport({
+      runner,
+      login: async () => {
+        logins += 1
+        return true
+      },
+    })
+
+    await expect(transport.generate(request)).resolves.toEqual({
+      text: "done after login",
+      modelId: "claude-sonnet-4.6",
+    })
+    expect(logins).toBe(1)
+    expect(calls).toEqual([
+      { command: "kiro-cli", args: cliChatArgs(request), options: { timeoutMs: 120_000 } },
+      { command: "kiro-cli", args: cliChatArgs(request), options: { timeoutMs: 120_000 } },
+    ])
   })
 
   test("rejects empty successful cli output", async () => {

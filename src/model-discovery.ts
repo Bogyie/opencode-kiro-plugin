@@ -1,7 +1,15 @@
 import type { CommandRunner } from "./auth.js"
-import { runCommand } from "./auth.js"
+import { runCommand, runKiroLoginFlowOnce } from "./auth.js"
 import type { CachedModelInfo, ModelCache } from "./model-cache.js"
 import { normalizeModelName } from "./model-resolver.js"
+
+export type KiroLoginFlowRunner = () => Promise<boolean>
+
+export interface ModelDiscoveryCommandOptions {
+  readonly runner?: CommandRunner
+  readonly loginOnAuthFailure?: boolean
+  readonly login?: KiroLoginFlowRunner
+}
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined
@@ -82,6 +90,20 @@ export function parseDiscoveredModels(raw: string): CachedModelInfo[] {
   return dedupe(fromLines(trimmed))
 }
 
+export function isModelDiscoveryAuthFailure(output: string): boolean {
+  const text = output.toLowerCase()
+  return (
+    text.includes("not logged in") ||
+    text.includes("not authenticated") ||
+    text.includes("unauthorized") ||
+    text.includes("authorization") ||
+    text.includes("authentication") ||
+    text.includes("auth token") ||
+    text.includes("token expired") ||
+    text.includes("expired token")
+  )
+}
+
 function dedupe(models: ReadonlyArray<CachedModelInfo>): CachedModelInfo[] {
   return [...new Map(models.map((model) => [model.id, model])).values()].sort((a, b) => a.id.localeCompare(b.id))
 }
@@ -89,10 +111,19 @@ function dedupe(models: ReadonlyArray<CachedModelInfo>): CachedModelInfo[] {
 export async function discoverModelsFromCommand(
   command: string,
   args: ReadonlyArray<string>,
-  runner: CommandRunner = runCommand,
+  runnerOrOptions: CommandRunner | ModelDiscoveryCommandOptions = runCommand,
 ): Promise<CachedModelInfo[]> {
+  const options: ModelDiscoveryCommandOptions = typeof runnerOrOptions === "function" ? { runner: runnerOrOptions } : runnerOrOptions
+  const runner = options.runner ?? runCommand
   const result = await runner(command, [...args])
-  if (!result.ok) return []
+  if (!result.ok) {
+    if (!options.loginOnAuthFailure || !isModelDiscoveryAuthFailure(`${result.stdout}\n${result.stderr}`)) return []
+    const loggedIn = await (options.login ?? runKiroLoginFlowOnce)()
+    if (!loggedIn) return []
+    const retry = await runner(command, [...args])
+    if (!retry.ok) return []
+    return parseDiscoveredModels(retry.stdout)
+  }
   return parseDiscoveredModels(result.stdout)
 }
 
@@ -100,9 +131,9 @@ export async function refreshModelCacheFromCommand(
   cache: ModelCache,
   command: string,
   args: ReadonlyArray<string>,
-  runner: CommandRunner = runCommand,
+  runnerOrOptions: CommandRunner | ModelDiscoveryCommandOptions = runCommand,
 ): Promise<CachedModelInfo[]> {
-  const models = await discoverModelsFromCommand(command, args, runner)
+  const models = await discoverModelsFromCommand(command, args, runnerOrOptions)
   if (models.length > 0) cache.update(models)
   return models
 }

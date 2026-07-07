@@ -144,6 +144,28 @@ describe("Kiro plugin", () => {
     await hooks.dispose?.()
   })
 
+  test("keeps Kiro visible with an auto placeholder when discovery has no models", async () => {
+    const hooks = await createKiroPlugin()(input, {
+      modelDiscoveryCommand: [process.execPath, "-e", "process.exit(1)"],
+    })
+    const config: any = {}
+
+    await hooks.config?.(config)
+
+    expect(config.provider.kiro.models.auto).toEqual({ name: "Auto" })
+    const models = await hooks.provider?.models?.(
+      {
+        id: "kiro",
+        name: "Kiro",
+        models: {},
+      } as any,
+      {},
+    )
+    expect(models?.auto?.api.id).toBe("auto")
+    expect(models?.auto?.api.npm).toBe("@ai-sdk/openai-compatible")
+    await hooks.dispose?.()
+  })
+
   test("provider hook adds OpenAI-compatible API metadata only to discovered or configured models", async () => {
     const hooks = await createKiroPlugin()(input, { ...withoutDiscovery, region: "eu-central-1" })
     const config: any = {

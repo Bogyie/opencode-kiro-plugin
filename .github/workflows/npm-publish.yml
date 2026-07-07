@@ -6,33 +6,39 @@ on:
     paths:
       - package.json
       - package-lock.json
+      - .github/workflows/npm-publish.yml
 
 permissions:
   contents: read
 
 jobs:
   prepare:
-    name: Determine package version bump
+    name: Determine package release state
     runs-on: ubuntu-latest
     outputs:
       should_publish: ${{ steps.version.outputs.should_publish }}
+      should_release: ${{ steps.version.outputs.should_release }}
       version: ${{ steps.version.outputs.version }}
       tag_name: ${{ steps.version.outputs.tag_name }}
+      target_sha: ${{ steps.version.outputs.target_sha }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Determine package version bump
+      - name: Determine package release state
         id: version
         shell: bash
         run: |
           set -euo pipefail
 
+          PACKAGE_NAME="$(node -p "require('./package.json').name")"
           VERSION="$(node -p "require('./package.json').version")"
           TAG_NAME="v${VERSION}"
           SHOULD_PUBLISH="false"
+          SHOULD_RELEASE="false"
+          TARGET_SHA="$GITHUB_SHA"
 
           BEFORE="${{ github.event.before }}"
           PREVIOUS_VERSION=""
@@ -44,22 +50,46 @@ jobs:
             )"
           fi
 
+          TAG_EXISTS="false"
+          if git rev-parse -q --verify "refs/tags/${TAG_NAME}" >/dev/null; then
+            TAG_EXISTS="true"
+          fi
+
+          PACKAGE_EXISTS="false"
+          if npm view "${PACKAGE_NAME}@${VERSION}" version --registry https://registry.npmjs.org/ >/dev/null 2>&1; then
+            PACKAGE_EXISTS="true"
+            PUBLISHED_GIT_HEAD="$(
+              npm view "${PACKAGE_NAME}@${VERSION}" gitHead --registry https://registry.npmjs.org/ 2>/dev/null || true
+            )"
+            if [ -n "$PUBLISHED_GIT_HEAD" ]; then
+              TARGET_SHA="$PUBLISHED_GIT_HEAD"
+            fi
+          fi
+
           if [ "$PREVIOUS_VERSION" != "$VERSION" ]; then
-            if git rev-parse -q --verify "refs/tags/${TAG_NAME}" >/dev/null; then
-              echo "Tag ${TAG_NAME} already exists." >&2
+            if [ "$TAG_EXISTS" = "true" ] && [ "$PACKAGE_EXISTS" = "false" ]; then
+              echo "Tag ${TAG_NAME} already exists but ${PACKAGE_NAME}@${VERSION} is not published." >&2
               exit 1
             fi
-            SHOULD_PUBLISH="true"
+            if [ "$PACKAGE_EXISTS" = "false" ]; then
+              SHOULD_PUBLISH="true"
+            fi
+          fi
+
+          if [ "$TAG_EXISTS" = "false" ]; then
+            SHOULD_RELEASE="true"
           fi
 
           echo "should_publish=${SHOULD_PUBLISH}" >> "$GITHUB_OUTPUT"
+          echo "should_release=${SHOULD_RELEASE}" >> "$GITHUB_OUTPUT"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "tag_name=${TAG_NAME}" >> "$GITHUB_OUTPUT"
+          echo "target_sha=${TARGET_SHA}" >> "$GITHUB_OUTPUT"
 
   publish:
-    name: Publish to npm
+    name: Publish to npm and sync release
     needs: prepare
-    if: needs.prepare.outputs.should_publish == 'true'
+    if: needs.prepare.outputs.should_publish == 'true' || needs.prepare.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     environment: npm
     permissions:
@@ -81,14 +111,17 @@ jobs:
           registry-url: https://registry.npmjs.org/
 
       - name: Setup Bun
+        if: needs.prepare.outputs.should_publish == 'true'
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
       - name: Install dependencies
+        if: needs.prepare.outputs.should_publish == 'true'
         run: npm ci
 
       - name: Verify package version
+        if: needs.prepare.outputs.should_publish == 'true'
         run: |
           PACKAGE_VERSION="$(node -p "require('./package.json').version")"
           if [ "$PACKAGE_VERSION" != "${{ needs.prepare.outputs.version }}" ]; then
@@ -97,21 +130,27 @@ jobs:
           fi
 
       - name: Run tests
+        if: needs.prepare.outputs.should_publish == 'true'
         run: npm test
 
       - name: Typecheck
+        if: needs.prepare.outputs.should_publish == 'true'
         run: npm run typecheck
 
       - name: Smoke package
+        if: needs.prepare.outputs.should_publish == 'true'
         run: npm run smoke:package
 
       - name: Check publish contents
+        if: needs.prepare.outputs.should_publish == 'true'
         run: npm pack --dry-run
 
       - name: Publish package
-        run: npm publish --access public
+        if: needs.prepare.outputs.should_publish == 'true'
+        run: npm publish --access public --provenance
 
       - name: Create GitHub Release
-        run: gh release create "${{ needs.prepare.outputs.tag_name }}" --target "$GITHUB_SHA" --title "${{ needs.prepare.outputs.tag_name }}" --notes "Release ${{ needs.prepare.outputs.tag_name }}"
+        if: needs.prepare.outputs.should_release == 'true'
+        run: gh release create "${{ needs.prepare.outputs.tag_name }}" --target "${{ needs.prepare.outputs.target_sha }}" --title "${{ needs.prepare.outputs.tag_name }}" --notes "Release ${{ needs.prepare.outputs.tag_name }}"
         env:
           GH_TOKEN: ${{ github.token }}

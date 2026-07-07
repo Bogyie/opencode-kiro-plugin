@@ -1,5 +1,5 @@
 import type { CommandRunner } from "./auth.js"
-import { runCommand, startKiroCliLoginOnce } from "./auth.js"
+import { runCommand, runKiroLoginFlowOnce } from "./auth.js"
 import { KiroPluginError } from "./errors.js"
 import type { KiroTransport } from "./fetch-adapter.js"
 import type { KiroGenerateRequest } from "./request-adapter.js"
@@ -9,7 +9,7 @@ import { spawn, type ChildProcess } from "node:child_process"
 export interface CliChatTransportOptions {
   readonly runner?: CommandRunner
   readonly spawner?: CliChatSpawner
-  readonly loginStarter?: () => void
+  readonly login?: () => Promise<boolean>
   readonly trustAllTools?: boolean
   readonly requestTimeoutMs?: number
 }
@@ -104,35 +104,24 @@ class AsyncQueue<T> implements AsyncIterable<T> {
 export class KiroCliChatTransport implements KiroTransport {
   readonly #runner: CommandRunner
   readonly #spawner: CliChatSpawner
-  readonly #loginStarter: () => void
+  readonly #login: () => Promise<boolean>
   readonly #trustAllTools: boolean
   readonly #requestTimeoutMs: number
 
   constructor(options: CliChatTransportOptions = {}) {
     this.#runner = options.runner ?? runCommand
     this.#spawner = options.spawner ?? ((command, args) => spawn(command, [...args], { stdio: ["ignore", "pipe", "pipe"] }))
-    this.#loginStarter = options.loginStarter ?? (() => {
-      startKiroCliLoginOnce()
-    })
+    this.#login = options.login ?? runKiroLoginFlowOnce
     this.#trustAllTools = options.trustAllTools === true
     this.#requestTimeoutMs = options.requestTimeoutMs ?? 120_000
   }
 
-  #startLoginAfterAuthFailure(): void {
-    try {
-      this.#loginStarter()
-    } catch {
-      // Keep the original model-call auth error visible to OpenCode.
-    }
-  }
-
-  async generate(request: KiroGenerateRequest): Promise<KiroGenerateResponse> {
+  async #runCliChat(request: KiroGenerateRequest): Promise<KiroGenerateResponse> {
     const result = await this.#runner("kiro-cli", cliChatArgs(request, { trustAllTools: this.#trustAllTools }), {
       timeoutMs: this.#requestTimeoutMs,
     })
     if (!result.ok) {
       const authError = result.stderr.toLowerCase().includes("not logged in")
-      if (authError) this.#startLoginAfterAuthFailure()
       throw new KiroPluginError(
         result.stderr.trim() || "kiro-cli chat failed",
         authError ? "KIRO_AUTH_ERROR" : "KIRO_CLI_FAILED",
@@ -153,7 +142,18 @@ export class KiroCliChatTransport implements KiroTransport {
     }
   }
 
-  async *stream(request: KiroGenerateRequest): AsyncIterable<KiroStreamEvent> {
+  async generate(request: KiroGenerateRequest): Promise<KiroGenerateResponse> {
+    try {
+      return await this.#runCliChat(request)
+    } catch (error) {
+      if (!(error instanceof KiroPluginError) || error.code !== "KIRO_AUTH_ERROR") throw error
+      const authenticated = await this.#login()
+      if (!authenticated) throw error
+      return this.#runCliChat(request)
+    }
+  }
+
+  async *#streamCliChat(request: KiroGenerateRequest): AsyncIterable<KiroStreamEvent> {
     const child = this.#spawner("kiro-cli", cliChatArgs(request, { trustAllTools: this.#trustAllTools }))
     const queue = new AsyncQueue<KiroStreamEvent>()
     let rawStdout = ""
@@ -190,7 +190,6 @@ export class KiroCliChatTransport implements KiroTransport {
         return
       }
       const authError = stderr.toLowerCase().includes("not logged in")
-      if (authError) this.#startLoginAfterAuthFailure()
       queue.fail(
         new KiroPluginError(
           stderr.trim() || `kiro-cli chat exited${code === null ? "" : ` with code ${code}`}${signal ? ` and signal ${signal}` : ""}`,
@@ -205,6 +204,17 @@ export class KiroCliChatTransport implements KiroTransport {
     } finally {
       clearTimeout(timer)
       if (!child.killed && child.exitCode === null) child.kill()
+    }
+  }
+
+  async *stream(request: KiroGenerateRequest): AsyncIterable<KiroStreamEvent> {
+    try {
+      yield* this.#streamCliChat(request)
+    } catch (error) {
+      if (!(error instanceof KiroPluginError) || error.code !== "KIRO_AUTH_ERROR") throw error
+      const authenticated = await this.#login()
+      if (!authenticated) throw error
+      yield* this.#streamCliChat(request)
     }
   }
 }

@@ -58,12 +58,19 @@ export interface KiroLoginSession {
   waitForAuth(runner?: CommandRunner): Promise<boolean>
 }
 
+export interface KiroLoginFlowOptions {
+  readonly spawner?: ProcessSpawner
+  readonly runner?: CommandRunner
+  readonly promptTimeoutMs?: number
+}
+
 export const KIRO_LOGIN_URL = "https://view.awsapps.com/start"
 export const DEFAULT_KIRO_CLI_DB_PATH = join(homedir(), "Library", "Application Support", "kiro-cli", "data.sqlite3")
 export const DEFAULT_KIRO_CLI_TOKEN_KEYS = ["kirocli:odic:token", "codewhisperer:odic:token"] as const
 const LOGIN_REUSE_WINDOW_MS = 2 * 60 * 1000
 let sharedLoginSession: KiroLoginSession | undefined
 let sharedLoginStartedAt = 0
+let sharedLoginFlow: Promise<boolean> | undefined
 
 export async function runCommand(command: string, args: ReadonlyArray<string>, options: CommandRunOptions = {}): Promise<CommandResult> {
   try {
@@ -257,6 +264,17 @@ export function startKiroCliLoginOnce(
   sharedLoginSession = wrapped
   sharedLoginStartedAt = now
   return wrapped
+}
+
+export async function runKiroLoginFlowOnce(options: KiroLoginFlowOptions = {}): Promise<boolean> {
+  sharedLoginFlow ??= (async () => {
+    const session = startKiroCliLoginOnce(options.spawner)
+    await session.waitForPrompt(options.promptTimeoutMs)
+    return session.waitForAuth(options.runner)
+  })().finally(() => {
+    sharedLoginFlow = undefined
+  })
+  return sharedLoginFlow
 }
 
 export function redacted(value: string | undefined): string | undefined {

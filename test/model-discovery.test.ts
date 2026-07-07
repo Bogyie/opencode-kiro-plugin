@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { discoverModelsFromCommand, parseDiscoveredModels } from "../src/model-discovery.js"
+import { discoverModelsFromCommand, isModelDiscoveryAuthFailure, parseDiscoveredModels } from "../src/model-discovery.js"
 
 describe("model discovery", () => {
   test("parses JSON model arrays", () => {
@@ -103,5 +103,55 @@ describe("model discovery", () => {
         raw: { name: "MiniMax", model: "minimax-m2.5" },
       },
     ])
+  })
+
+  test("detects auth failures from model discovery output", () => {
+    expect(isModelDiscoveryAuthFailure("error: not logged in")).toBe(true)
+    expect(isModelDiscoveryAuthFailure("UnauthorizedException")).toBe(true)
+    expect(isModelDiscoveryAuthFailure("network unavailable")).toBe(false)
+  })
+
+  test("runs login flow and retries model discovery once on auth failure", async () => {
+    const calls: unknown[] = []
+    let logins = 0
+    const models = await discoverModelsFromCommand("kiro-cli", ["chat", "--list-models"], {
+      loginOnAuthFailure: true,
+      login: async () => {
+        logins += 1
+        return true
+      },
+      runner: async (command, args) => {
+        calls.push({ command, args })
+        if (calls.length === 1) return { ok: false, stdout: "", stderr: "not logged in" }
+        return { ok: true, stdout: JSON.stringify({ models: [{ id: "claude-sonnet-5" }] }), stderr: "" }
+      },
+    })
+
+    expect(logins).toBe(1)
+    expect(calls).toEqual([
+      { command: "kiro-cli", args: ["chat", "--list-models"] },
+      { command: "kiro-cli", args: ["chat", "--list-models"] },
+    ])
+    expect(models).toEqual([{ id: "claude-sonnet-5", raw: { id: "claude-sonnet-5" } }])
+  })
+
+  test("does not retry model discovery when login flow fails", async () => {
+    let calls = 0
+    let logins = 0
+    const models = await discoverModelsFromCommand("kiro-cli", ["chat", "--list-models"], {
+      loginOnAuthFailure: true,
+      login: async () => {
+        logins += 1
+        return false
+      },
+      runner: async () => {
+        calls += 1
+        return { ok: false, stdout: "", stderr: "not authenticated" }
+      },
+    })
+
+    expect(logins).toBe(1)
+    expect(calls).toBe(1)
+    expect(models).toEqual([])
   })
 })

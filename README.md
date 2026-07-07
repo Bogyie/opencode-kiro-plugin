@@ -38,9 +38,9 @@ The plugin resolves credentials in this order:
 3. Local Kiro CLI session token from the Kiro CLI SQLite store
 4. `kiro-cli whoami` diagnostics for CLI session visibility
 
-When no usable Kiro CLI session is available, open OpenCode's provider connector, choose Kiro, and select `Kiro CLI login`. The plugin starts `kiro-cli login --use-device-flow`, waits until the verification URL/device code is visible, returns them to the connector, and then waits until `kiro-cli whoami` succeeds. The same auth method also works from OpenCode's CLI provider connect flow.
+When no usable Kiro CLI session is available, OpenCode's startup model discovery may start the same Kiro CLI login flow automatically. The plugin runs `kiro-cli login --use-device-flow`, waits for login to complete through `kiro-cli whoami`, and then runs the model discovery command one more time. If that login fails or times out, discovery fails for that startup attempt; it does not loop.
 
-The plugin does not start login during OpenCode startup. Direct fetch mode uses a usable API key/token when one is configured; otherwise it reads the active Kiro CLI session token and calls Kiro's REST/EventStream endpoint directly. If a model request fails because credentials are missing or rejected, the plugin starts one shared Kiro CLI login session and still returns `KIRO_AUTH_ERROR` for that failed request; retry after the login completes. `cli-chat` mode uses the official `kiro-cli chat --no-interactive` surface and applies the same login-on-auth-failure behavior. `acp` mode uses the official `kiro-cli acp` surface, but is still treated as an explicit backend while its real-world protocol behavior is validated across Kiro CLI versions.
+You can also open OpenCode's provider connector, choose Kiro, and select `Kiro CLI login`. The connector flow starts `kiro-cli login --use-device-flow`, waits until the verification URL/device code is visible, returns them to the connector, and then waits until `kiro-cli whoami` succeeds. Direct fetch mode uses a usable API key/token when one is configured; otherwise it reads the active Kiro CLI session token and calls Kiro's REST/EventStream endpoint directly. If credentials expire during use, direct fetch and `cli-chat` start the shared Kiro login flow, wait for it to complete, and retry the failed request once. `cli-chat` mode uses the official `kiro-cli chat --no-interactive` surface and depends on the local Kiro CLI login state. `acp` mode uses the official `kiro-cli acp` surface, but is still treated as an explicit backend while its real-world protocol behavior is validated across Kiro CLI versions.
 
 Use the `kiro_status` plugin tool to inspect provider id, backend, region, auth method, and discovered model count. Secrets are redacted in diagnostics.
 
@@ -77,7 +77,7 @@ Supported values:
 
 ## Model Churn Handling
 
-The resolver intentionally avoids a hard whitelist. By default, the plugin reads the current Kiro CLI model list with `kiro-cli chat --list-models --format json`. Runtime discovery is the source of truth for the model picker; bundled metadata is not injected as available models by default.
+The resolver intentionally avoids a hard whitelist. By default, the plugin reads the current Kiro CLI model list with `kiro-cli chat --list-models --format json`. Runtime discovery is the source of truth for the model picker; if discovery cannot return any models, the plugin exposes an `auto` placeholder so OpenCode keeps the Kiro provider visible for connection.
 
 Useful options:
 
@@ -127,7 +127,7 @@ This keeps new Kiro model ids usable before the package is updated without adver
 
 The plugin injects `provider.kiro` automatically. You only need to add `provider.kiro.models` yourself when overriding OpenCode model-picker metadata, such as a display name or context limit. Use plugin `modelAliases` for aliases that should resolve one requested model id to another.
 
-`modelDiscoveryCommand` defaults to `["kiro-cli", "chat", "--list-models", "--format", "json"]`. Set `modelDiscovery` to `"off"` to skip runtime discovery. Discovery stdout can be a JSON array, `{ "models": [...] }`, `{ "data": [...] }`, Kiro CLI list-models JSON, Kiro CLI plain list output, or one model id per line.
+`modelDiscoveryCommand` defaults to `["kiro-cli", "chat", "--list-models", "--format", "json"]`. Set `modelDiscovery` to `"off"` to skip runtime discovery. If this command fails with an auth error, the plugin starts Kiro CLI login, waits for it to finish, and retries the command once. Discovery stdout can be a JSON array, `{ "models": [...] }`, `{ "data": [...] }`, Kiro CLI list-models JSON, Kiro CLI plain list output, or one model id per line.
 
 ## Troubleshooting
 
