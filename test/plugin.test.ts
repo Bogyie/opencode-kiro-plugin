@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { createKiroPlugin } from "../src/plugin.js"
+import { acpTransportOptions, createKiroPlugin } from "../src/plugin.js"
 
 const input = {
   client: {},
@@ -12,6 +12,16 @@ const input = {
 } as any
 
 describe("Kiro plugin", () => {
+  test("maps plugin timeout options to ACP prompt timeout", () => {
+    expect(acpTransportOptions({ requestTimeoutMs: 30_000, trustAllTools: true })).toEqual({
+      promptTimeoutMs: 30_000,
+      trustAllTools: true,
+    })
+    expect(acpTransportOptions({ trustAllTools: false })).toEqual({
+      trustAllTools: false,
+    })
+  })
+
   test("exports config, auth, and provider hooks", async () => {
     const hooks = await createKiroPlugin()(input, undefined)
 

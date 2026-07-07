@@ -1,9 +1,11 @@
 import type { Hooks, Plugin } from "@opencode-ai/plugin"
 import { tool } from "@opencode-ai/plugin"
 import { KiroAcpTransport } from "./acp-transport.js"
+import type { KiroAcpTransportOptions } from "./acp-transport.js"
 import { detectAuth, resolveApiKey } from "./auth.js"
 import { KiroCliChatTransport } from "./cli-transport.js"
 import { loadOptions } from "./config.js"
+import type { KiroPluginOptions } from "./config.js"
 import { createKiroFetch } from "./fetch-adapter.js"
 import { ModelCache } from "./model-cache.js"
 import { refreshModelCacheFromCommand } from "./model-discovery.js"
@@ -33,6 +35,13 @@ function discoveredProviderModels(cache: ModelCache): Record<string, ProviderMod
       },
     ]),
   )
+}
+
+export function acpTransportOptions(options: Pick<KiroPluginOptions, "requestTimeoutMs" | "trustAllTools">): KiroAcpTransportOptions {
+  return {
+    trustAllTools: options.trustAllTools,
+    ...(options.requestTimeoutMs ? { promptTimeoutMs: options.requestTimeoutMs } : {}),
+  }
 }
 
 export function createKiroPlugin(): Plugin {
@@ -109,7 +118,7 @@ export function createKiroPlugin(): Plugin {
           const apiKey = await resolveApiKey(auth)
           const transport =
             options.backend === "acp"
-              ? new KiroAcpTransport({ trustAllTools: options.trustAllTools })
+              ? new KiroAcpTransport(acpTransportOptions(options))
             : options.backend === "cli-chat"
               ? new KiroCliChatTransport({
                   trustAllTools: options.trustAllTools,
