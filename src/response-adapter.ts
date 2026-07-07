@@ -12,6 +12,7 @@ export interface KiroStreamChunk {
   readonly type?: "text"
   readonly text: string
   readonly modelId?: string
+  readonly usage?: KiroGenerateResponse["usage"]
 }
 
 export interface KiroToolCallChunk {
@@ -98,6 +99,7 @@ export function toOpenAIChatStreamResponse(chunks: AsyncIterable<KiroStreamEvent
               ],
             }
           } else {
+            if (!chunk.text) continue
             delta = { content: chunk.text }
           }
           controller.enqueue(

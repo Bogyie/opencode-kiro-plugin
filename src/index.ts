@@ -17,6 +17,7 @@ export {
   createCodeWhispererClient,
   streamAssistantText,
   toGenerateAssistantResponseInput,
+  usageFromMetadataEvent,
 } from "./kiro-transport.js"
 export { ModelCache } from "./model-cache.js"
 export { discoverModelsFromCommand, parseDiscoveredModels, refreshModelCacheFromCommand } from "./model-discovery.js"

@@ -44,6 +44,23 @@ export function additionalModelRequestFields(request: KiroGenerateRequest): Reco
   return Object.keys(fields).length > 0 ? fields : undefined
 }
 
+function numberValue(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined
+}
+
+export function usageFromMetadataEvent(event: ChatResponseStream): KiroGenerateResponse["usage"] | undefined {
+  const usage = event.metadataEvent?.tokenUsage
+  if (!usage) return undefined
+  const uncachedInput = numberValue(usage.uncachedInputTokens) ?? 0
+  const cacheRead = numberValue(usage.cacheReadInputTokens) ?? 0
+  const cacheWrite = numberValue(usage.cacheWriteInputTokens) ?? 0
+  const outputTokens = numberValue(usage.outputTokens)
+  return {
+    inputTokens: uncachedInput + cacheRead + cacheWrite,
+    ...(outputTokens !== undefined ? { outputTokens } : {}),
+  }
+}
+
 export function createCodeWhispererClient(options: KiroTransportOptions): CodeWhispererClientLike {
   const client = new CodeWhispererStreamingClient({
     region: options.region,
@@ -164,11 +181,13 @@ export async function collectAssistantText(
 
   let text = ""
   let modelId: string | undefined
+  let usage: KiroGenerateResponse["usage"] | undefined
   for await (const event of stream) {
     if (event.assistantResponseEvent) {
       text += event.assistantResponseEvent.content ?? ""
       modelId = event.assistantResponseEvent.modelId ?? modelId
     }
+    usage = usageFromMetadataEvent(event) ?? usage
     if (event.error) {
       throw new Error(event.error.message ?? "Kiro stream returned an error event")
     }
@@ -177,6 +196,7 @@ export async function collectAssistantText(
   return {
     text,
     ...(modelId ? { modelId } : {}),
+    ...(usage ? { usage } : {}),
   }
 }
 
@@ -210,6 +230,14 @@ export async function* streamAssistantText(
         toolInputs.delete(id)
       }
     }
+    const usage = usageFromMetadataEvent(event)
+    if (usage) {
+      yield {
+        type: "text",
+        text: "",
+        usage,
+      }
+    }
     if (event.error) {
       throw new Error(event.error.message ?? "Kiro stream returned an error event")
     }
@@ -219,6 +247,7 @@ export async function* streamAssistantText(
 async function collectChunks(chunks: AsyncIterable<KiroStreamEvent>, fallbackModelId: string): Promise<KiroGenerateResponse> {
   let text = ""
   let modelId: string | undefined
+  let usage: KiroGenerateResponse["usage"] | undefined
   const toolCalls = []
   for await (const chunk of chunks) {
     if (chunk.type === "tool_call") {
@@ -228,11 +257,13 @@ async function collectChunks(chunks: AsyncIterable<KiroStreamEvent>, fallbackMod
     }
     text += chunk.text
     modelId = chunk.modelId ?? modelId
+    if (chunk.usage) usage = chunk.usage
   }
   return {
     text,
     modelId: modelId ?? fallbackModelId,
     ...(toolCalls.length > 0 ? { toolCalls } : {}),
+    ...(usage ? { usage } : {}),
   }
 }
 

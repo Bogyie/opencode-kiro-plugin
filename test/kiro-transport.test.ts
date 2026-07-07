@@ -6,6 +6,7 @@ import {
   collectAssistantText,
   streamAssistantText,
   toGenerateAssistantResponseInput,
+  usageFromMetadataEvent,
   type CodeWhispererClientLike,
 } from "../src/kiro-transport.js"
 import type { KiroGenerateRequest } from "../src/request-adapter.js"
@@ -108,6 +109,27 @@ describe("additionalModelRequestFields", () => {
   })
 })
 
+describe("usageFromMetadataEvent", () => {
+  test("maps Kiro token metadata to OpenAI-compatible usage fields", () => {
+    expect(
+      usageFromMetadataEvent({
+        metadataEvent: {
+          tokenUsage: {
+            uncachedInputTokens: 10,
+            cacheReadInputTokens: 3,
+            cacheWriteInputTokens: 2,
+            outputTokens: 7,
+            totalTokens: 22,
+          },
+        },
+      }),
+    ).toEqual({
+      inputTokens: 15,
+      outputTokens: 7,
+    })
+  })
+})
+
 describe("collectAssistantText", () => {
   test("combines assistant response chunks", async () => {
     const response = await collectAssistantText(
@@ -118,6 +140,32 @@ describe("collectAssistantText", () => {
     )
 
     expect(response).toEqual({ text: "hello", modelId: "claude-sonnet-4.6" })
+  })
+
+  test("preserves metadata token usage", async () => {
+    const response = await collectAssistantText(
+      events([
+        { assistantResponseEvent: { content: "hello", modelId: "claude-sonnet-4.6" } },
+        {
+          metadataEvent: {
+            tokenUsage: {
+              uncachedInputTokens: 4,
+              outputTokens: 2,
+              totalTokens: 6,
+            },
+          },
+        },
+      ]),
+    )
+
+    expect(response).toEqual({
+      text: "hello",
+      modelId: "claude-sonnet-4.6",
+      usage: {
+        inputTokens: 4,
+        outputTokens: 2,
+      },
+    })
   })
 
   test("throws on stream error events", async () => {
@@ -159,6 +207,36 @@ describe("streamAssistantText", () => {
         id: "call-1",
         name: "read_file",
         arguments: '{"path":"README.md"}',
+      },
+    ])
+  })
+
+  test("yields usage-only chunks for metadata events", async () => {
+    const chunks = []
+    for await (const chunk of streamAssistantText(
+      events([
+        {
+          metadataEvent: {
+            tokenUsage: {
+              uncachedInputTokens: 4,
+              outputTokens: 2,
+              totalTokens: 6,
+            },
+          },
+        },
+      ]),
+    )) {
+      chunks.push(chunk)
+    }
+
+    expect(chunks).toEqual([
+      {
+        type: "text",
+        text: "",
+        usage: {
+          inputTokens: 4,
+          outputTokens: 2,
+        },
       },
     ])
   })
@@ -231,6 +309,43 @@ describe("CodeWhispererKiroTransport", () => {
           arguments: '{"path":"README.md"}',
         },
       ],
+    })
+  })
+
+  test("preserves usage in non-streaming generate responses", async () => {
+    const client: CodeWhispererClientLike = {
+      async send() {
+        return {
+          conversationId: "conversation",
+          generateAssistantResponseResponse: events([
+            { assistantResponseEvent: { content: "done", modelId: "claude-sonnet-4.6" } },
+            {
+              metadataEvent: {
+                tokenUsage: {
+                  uncachedInputTokens: 5,
+                  cacheReadInputTokens: 1,
+                  outputTokens: 3,
+                  totalTokens: 9,
+                },
+              },
+            },
+          ]),
+          $metadata: {},
+        }
+      },
+    }
+    const transport = new CodeWhispererKiroTransport(
+      { region: "us-east-1", accessToken: "token" },
+      () => client,
+    )
+
+    await expect(transport.generate(request)).resolves.toEqual({
+      text: "done",
+      modelId: "claude-sonnet-4.6",
+      usage: {
+        inputTokens: 6,
+        outputTokens: 3,
+      },
     })
   })
 

@@ -274,6 +274,31 @@ describe("createKiroFetch", () => {
     expect(body).toContain("data: [DONE]")
   })
 
+  test("does not emit content chunks for usage-only stream events", async () => {
+    const fetch = createKiroFetch({
+      resolver: resolver(),
+      transport: {
+        async generate() {
+          throw new Error("generate should not be called for streaming")
+        },
+        async *stream() {
+          yield { type: "text" as const, text: "", usage: { inputTokens: 3, outputTokens: 5 } }
+          yield { type: "text" as const, text: "done", modelId: "claude-sonnet-4.6" }
+        },
+      },
+    })
+
+    const response = await fetch("https://q.us-east-1.amazonaws.com/chat/completions", {
+      method: "POST",
+      body: JSON.stringify({ ...request, stream: true }),
+    })
+    const body = await response.text()
+
+    expect(body).not.toContain('"content":""')
+    expect(body).toContain('"content":"done"')
+    expect(body).toContain('"finish_reason":"stop"')
+  })
+
   test("wraps non-streaming transport responses as SSE when stream is requested", async () => {
     const fetch = createKiroFetch({
       resolver: resolver(),

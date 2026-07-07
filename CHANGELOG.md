@@ -14,6 +14,7 @@ Initial OpenCode Kiro provider plugin implementation.
 - `kiro_status` diagnostic tool.
 - OpenAI-compatible request adapter for system prompts, chat history, multimodal data URL images/documents, tool specs, and tool results.
 - OpenAI-compatible generation options for temperature, token limit, and reasoning/thinking effort are preserved as best-effort model request fields in direct fetch mode.
+- CodeWhisperer metadata token usage is mapped to OpenAI-compatible non-streaming usage fields on a best-effort basis.
 - CodeWhisperer/Kiro transport with streaming text, tool-call deltas, configurable retry attempts, and request timeout.
 - CLI fallback using `kiro-cli chat --no-interactive`.
 - CLI fallback responses are wrapped as OpenAI-compatible SSE for streaming OpenCode calls and sanitized to remove terminal prompt/credits output.
