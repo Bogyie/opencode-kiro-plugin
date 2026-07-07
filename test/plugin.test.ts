@@ -181,7 +181,7 @@ describe("Kiro plugin", () => {
     await hooks.dispose?.()
   })
 
-  test("injects a connector-visible provider shell without default models during startup", async () => {
+  test("injects a connector-visible provider with an auto model during startup", async () => {
     const marker = tempMarker()
     const hooks = await createKiroPlugin()(input, {
       modelDiscoveryCommand: marker.command,
@@ -194,7 +194,7 @@ describe("Kiro plugin", () => {
       expect(config.provider.kiro.name).toBe("Kiro")
       expect(config.provider.kiro.npm).toBe("@ai-sdk/openai-compatible")
       expect(config.provider.kiro.api.startsWith("http://127.0.0.1:")).toBe(true)
-      expect(config.provider.kiro.models).toEqual({})
+      expect(config.provider.kiro.models).toEqual({ auto: { name: "Auto" } })
       await new Promise((resolve) => setTimeout(resolve, 50))
       expect(existsSync(marker.marker)).toBe(false)
       await hooks.dispose?.()
@@ -203,12 +203,13 @@ describe("Kiro plugin", () => {
     }
   })
 
-  test("does not synthesize an auto placeholder when no models are configured", async () => {
+  test("synthesizes an auto placeholder when no models are configured", async () => {
     const hooks = await createKiroPlugin()(input, {
       modelDiscoveryCommand: [process.execPath, "-e", "process.exit(1)"],
     })
     const models = await providerModels(hooks)
-    expect(models).toEqual({})
+    expect(models?.auto?.api.id).toBe("auto")
+    expect(models?.auto?.api.npm).toBe("@ai-sdk/openai-compatible")
     await hooks.dispose?.()
   })
 
@@ -228,7 +229,7 @@ describe("Kiro plugin", () => {
       await hooks.config?.(config)
       await new Promise((resolve) => setTimeout(resolve, 50))
 
-      expect(config.provider.kiro.models).toEqual({})
+      expect(config.provider.kiro.models).toEqual({ auto: { name: "Auto" } })
       expect(existsSync(marker.marker)).toBe(false)
       await hooks.dispose?.()
     } finally {

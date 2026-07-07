@@ -79,6 +79,8 @@ describe("package metadata", () => {
     expect(publishWorkflow).toContain("id-token: write")
     expect(publishWorkflow).toContain("contents: write")
     expect(publishWorkflow).toContain("node-version: 24.x")
+    expect(publishWorkflow).toContain("cache: npm")
+    expect(publishWorkflow).toContain("cache-dependency-path: package-lock.json")
     expect(publishWorkflow).toContain("oven-sh/setup-bun@v2")
     expect(publishWorkflow).toContain("Determine package release state")
     expect(publishWorkflow).toContain("should_release")

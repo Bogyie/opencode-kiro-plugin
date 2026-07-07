@@ -28,6 +28,8 @@ import type { ProviderModelConfig } from "./models.js"
 
 type MutableConfig = Record<string, any>
 type EffectiveBackend = "fetch" | "cli-chat" | "acp" | "none"
+const PLACEHOLDER_MODEL_ID = "auto"
+const PLACEHOLDER_MODEL: ProviderModelConfig = { name: "Auto" }
 
 function discoveredProviderModels(cache: ModelCache): Record<string, ProviderModelConfig> {
   return Object.fromEntries(
@@ -77,7 +79,8 @@ function visibleProviderModels(
         },
       ]),
   )
-  return models
+  if (Object.keys(models).length > 0 || disabledModels.has(PLACEHOLDER_MODEL_ID)) return models
+  return { [PLACEHOLDER_MODEL_ID]: PLACEHOLDER_MODEL }
 }
 
 function bearerToken(init: RequestInit | undefined): string | undefined {
