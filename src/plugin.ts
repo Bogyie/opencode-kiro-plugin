@@ -1,5 +1,6 @@
 import type { Hooks, Plugin } from "@opencode-ai/plugin"
 import { tool } from "@opencode-ai/plugin"
+import { KiroAcpTransport } from "./acp-transport.js"
 import { detectAuth, resolveApiKey } from "./auth.js"
 import { KiroCliChatTransport } from "./cli-transport.js"
 import { loadOptions } from "./config.js"
@@ -68,7 +69,9 @@ export function createKiroPlugin(): Plugin {
         loader: async (auth) => {
           const apiKey = await resolveApiKey(auth)
           const transport =
-            options.backend === "cli-chat"
+            options.backend === "acp"
+              ? new KiroAcpTransport()
+              : options.backend === "cli-chat"
               ? new KiroCliChatTransport({ trustAllTools: options.trustAllTools })
               : apiKey
                 ? new CodeWhispererKiroTransport({

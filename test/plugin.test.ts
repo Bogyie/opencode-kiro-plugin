@@ -83,6 +83,35 @@ describe("Kiro plugin", () => {
     }
   })
 
+  test("auth loader wires ACP backend without requiring API key", async () => {
+    const original = process.env.KIRO_API_KEY
+    delete process.env.KIRO_API_KEY
+    try {
+      const hooks = await createKiroPlugin()(input, { backend: "acp" })
+      const loaded = await hooks.auth?.loader?.(
+        async () => {
+          throw new Error("not connected")
+        },
+        {} as any,
+      )
+
+      const response = await loaded?.fetch("https://q.us-east-1.amazonaws.com/chat/completions", {
+        method: "POST",
+        body: JSON.stringify({
+          model: "claude-sonnet-4-6",
+          messages: [{ role: "user", content: "hello" }],
+        }),
+      })
+      const body = await response?.json()
+
+      expect(response?.status).toBe(501)
+      expect(body.error.code).toBe("KIRO_ACP_NOT_IMPLEMENTED")
+    } finally {
+      if (original === undefined) delete process.env.KIRO_API_KEY
+      else process.env.KIRO_API_KEY = original
+    }
+  })
+
   test("provides kiro_status diagnostic tool", async () => {
     const hooks = await createKiroPlugin()(input, { backend: "fetch" })
 

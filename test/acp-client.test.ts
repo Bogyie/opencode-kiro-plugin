@@ -1,0 +1,85 @@
+import { describe, expect, test } from "bun:test"
+import { AcpJsonRpcClient, decodeJsonRpc, encodeJsonRpc, type JsonRpcRequest } from "../src/acp-client.js"
+
+describe("ACP JSON-RPC client", () => {
+  test("encodes and decodes newline-delimited JSON-RPC messages", () => {
+    const message = { jsonrpc: "2.0" as const, id: 1, method: "initialize", params: { client: "test" } }
+    const encoded = encodeJsonRpc(message)
+
+    expect(encoded.endsWith("\n")).toBe(true)
+    expect(decodeJsonRpc(encoded)).toEqual(message)
+  })
+
+  test("sends requests and resolves matching responses", async () => {
+    const sent: JsonRpcRequest[] = []
+    const client = new AcpJsonRpcClient({
+      send(message) {
+        sent.push(message)
+      },
+    })
+
+    const promise = client.request("initialize", { client: "test" })
+
+    expect(sent).toEqual([{ jsonrpc: "2.0", id: 1, method: "initialize", params: { client: "test" } }])
+
+    client.receive({ jsonrpc: "2.0", id: 1, result: { ok: true } })
+
+    await expect(promise).resolves.toEqual({ ok: true })
+  })
+
+  test("rejects JSON-RPC error responses with ACP error code", async () => {
+    const client = new AcpJsonRpcClient({
+      send() {
+        return undefined
+      },
+    })
+
+    const promise = client.request("session/new")
+    client.receive({
+      jsonrpc: "2.0",
+      id: 1,
+      error: { code: -32601, message: "Method not found" },
+    })
+
+    await expect(promise).rejects.toMatchObject({
+      code: "KIRO_ACP_ERROR",
+      status: 502,
+      message: "Method not found",
+    })
+  })
+
+  test("ignores notifications and unknown response ids", async () => {
+    const client = new AcpJsonRpcClient({
+      send() {
+        return undefined
+      },
+    })
+
+    const promise = client.request("session/new")
+
+    client.receive({ jsonrpc: "2.0", method: "progress", params: { value: 1 } })
+    client.receive({ jsonrpc: "2.0", id: 99, result: "ignored" })
+    client.receive({ jsonrpc: "2.0", id: 1, result: "done" })
+
+    await expect(promise).resolves.toBe("done")
+  })
+
+  test("rejects all pending requests when the connection closes", async () => {
+    const client = new AcpJsonRpcClient({
+      send() {
+        return undefined
+      },
+    })
+
+    const first = client.request("session/new")
+    const second = client.request("prompt/send")
+    const firstError = first.catch((caught) => caught)
+    const secondError = second.catch((caught) => caught)
+    const error = new Error("closed")
+
+    client.rejectAll(error)
+
+    await expect(firstError).resolves.toBe(error)
+    await expect(secondError).resolves.toBe(error)
+  })
+})
