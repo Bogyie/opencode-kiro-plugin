@@ -184,4 +184,6 @@ Record any real Kiro/API limitations in `CHANGELOG.md` before publishing.
 - `kiro-cli whoami` succeeded with an IAM Identity Center session; account identifiers were not recorded here.
 - `kiro-cli chat --no-interactive "Say hello in one short sentence."` returned assistant text.
 - Built `KiroCliChatTransport` returned assistant text with `requestTimeoutMs: 30000`.
-- Full interactive OpenCode E2E and ACP prompt E2E still need to be run before release.
+- `kiro-cli acp --verbose` returned a valid `initialize` JSON-RPC response but also emitted a non-JSON stdout log line; the stdio client now ignores those log lines.
+- Built `KiroAcpTransport` still failed at session creation with `KIRO_ACP_PROCESS_EXITED` because Kiro CLI 2.6.1 exits with code 0 after the current `session/new` request. Full ACP prompt E2E still needs the current Kiro ACP session schema confirmed before release.
+- Full interactive OpenCode E2E still needs to be run before release.

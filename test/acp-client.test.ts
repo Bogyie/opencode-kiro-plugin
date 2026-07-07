@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test"
-import { AcpJsonRpcClient, decodeJsonRpc, encodeJsonRpc, type JsonRpcMessage, type JsonRpcRequest } from "../src/acp-client.js"
+import {
+  AcpJsonRpcClient,
+  decodeJsonRpc,
+  decodeJsonRpcLine,
+  encodeJsonRpc,
+  type JsonRpcMessage,
+  type JsonRpcRequest,
+} from "../src/acp-client.js"
 
 describe("ACP JSON-RPC client", () => {
   test("encodes and decodes newline-delimited JSON-RPC messages", () => {
@@ -8,6 +15,14 @@ describe("ACP JSON-RPC client", () => {
 
     expect(encoded.endsWith("\n")).toBe(true)
     expect(decodeJsonRpc(encoded)).toEqual(message)
+  })
+
+  test("ignores non-JSON stdout lines before decoding ACP messages", () => {
+    const message = { jsonrpc: "2.0" as const, id: 1, result: { ok: true } }
+
+    expect(decodeJsonRpcLine("2026-07-07T07:48:57Z ERROR q_cli::cli: verbose log")).toBeUndefined()
+    expect(decodeJsonRpcLine(JSON.stringify(message))).toEqual(message)
+    expect(() => decodeJsonRpcLine('{"not":"json-rpc"}')).toThrow("Invalid JSON-RPC 2.0 message.")
   })
 
   test("sends requests and resolves matching responses", async () => {

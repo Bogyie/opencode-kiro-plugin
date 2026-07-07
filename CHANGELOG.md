@@ -19,6 +19,7 @@ Initial OpenCode Kiro provider plugin implementation.
 - ACP fallback using `kiro-cli acp` JSON-RPC stdio with initialize/session/model/prompt flow.
 - ACP streaming for `AgentMessageChunk`, basic `ToolCall` events, and embedded document resources.
 - ACP agent-origin request handling for permission requests, with default reject and `trustAllTools` allow mode.
+- ACP stdio client ignores non-JSON stdout log lines emitted by `kiro-cli acp --verbose` before JSON-RPC messages.
 - Clean build artifacts before packaging and add a built package import smoke check.
 - Structured error normalization for auth, quota/rate limit, upstream, network, unsupported backend, ACP, and timeout failures.
 - README, local OpenCode config example, implementation notes, license notes, and package metadata tests.

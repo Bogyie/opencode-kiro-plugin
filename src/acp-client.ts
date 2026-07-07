@@ -64,6 +64,13 @@ export function decodeJsonRpc(line: string): JsonRpcMessage {
   return parsed as JsonRpcMessage
 }
 
+export function decodeJsonRpcLine(line: string): JsonRpcMessage | undefined {
+  const trimmed = line.trim()
+  if (!trimmed) return undefined
+  if (!trimmed.startsWith("{")) return undefined
+  return decodeJsonRpc(trimmed)
+}
+
 function hasId(message: JsonRpcMessage): message is JsonRpcResponse {
   return "id" in message
 }
@@ -221,7 +228,8 @@ export function createAcpStdioClient(options: AcpStdioClientOptions = {}): AcpJs
       stdout = stdout.slice(index + 1)
       if (!line) continue
       try {
-        client?.receive(decodeJsonRpc(line))
+        const message = decodeJsonRpcLine(line)
+        if (message) client?.receive(message)
       } catch (error) {
         client?.rejectAll(error)
       }
