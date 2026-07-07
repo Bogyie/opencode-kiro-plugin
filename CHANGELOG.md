@@ -9,6 +9,7 @@ Initial OpenCode Kiro provider plugin implementation.
 - OpenCode server plugin entrypoint with `config`, `auth`, `provider`, and `tool` hooks.
 - Kiro provider config injection using `@ai-sdk/openai-compatible`.
 - Model resolver with normalization, aliases, hidden/manual models, disabled models, pass-through behavior, and configurable extra model presets.
+- Optional `modelDiscoveryCommand` support for refreshing model cache/provider metadata from user-configured CLI/API output.
 - Auth diagnostics for `KIRO_API_KEY`, OpenCode auth input, and `kiro-cli whoami`.
 - `kiro_status` diagnostic tool.
 - OpenAI-compatible request adapter for system prompts, chat history, multimodal data URL images/documents, tool specs, and tool results.

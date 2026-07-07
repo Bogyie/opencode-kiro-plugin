@@ -84,6 +84,8 @@ Useful options:
       "file:/absolute/path/to/opencode-kiro-plugin",
       {
         "modelCacheTtlSeconds": 21600,
+        "modelDiscovery": "auto",
+        "modelDiscoveryCommand": ["kiro-cli", "models", "--json"],
         "modelAliases": {
           "sonnet": "claude-sonnet-4.6",
           "opus": "claude-opus-4.6"
@@ -118,6 +120,8 @@ Resolution order:
 7. Optimistic pass-through unless disabled
 
 This keeps new Kiro model ids usable before the package is updated. Use `extraModels` when a new model should appear in OpenCode's model picker immediately. Set `disableModelPassThrough: true` only when you need strict model governance.
+
+`modelDiscoveryCommand` is optional and intentionally not guessed by default because Kiro CLI model-list flags may vary by version. When configured, stdout can be a JSON array, `{ "models": [...] }`, `{ "data": [...] }`, or one model id per line.
 
 ## Troubleshooting
 

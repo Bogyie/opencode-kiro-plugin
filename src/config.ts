@@ -6,6 +6,7 @@ export interface KiroPluginOptions {
   readonly region: string
   readonly backend: BackendMode
   readonly modelDiscovery: ModelDiscoveryMode
+  readonly modelDiscoveryCommand: ReadonlyArray<string>
   readonly modelCacheTtlSeconds: number
   readonly requestTimeoutMs?: number
   readonly maxAttempts: number
@@ -79,6 +80,7 @@ export function loadOptions(raw: unknown = {}): KiroPluginOptions {
     region: typeof input.region === "string" && input.region ? input.region : DEFAULT_REGION,
     backend,
     modelDiscovery,
+    modelDiscoveryCommand: stringArray(input.modelDiscoveryCommand),
     modelCacheTtlSeconds: positiveNumber(input.modelCacheTtlSeconds, DEFAULT_MODEL_CACHE_TTL_SECONDS),
     ...(requestTimeoutMs ? { requestTimeoutMs } : {}),
     maxAttempts: positiveInteger(input.maxAttempts, DEFAULT_MAX_ATTEMPTS),

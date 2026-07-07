@@ -87,6 +87,31 @@ describe("Kiro plugin", () => {
     })
   })
 
+  test("provider hook can discover models from a configured command", async () => {
+    const hooks = await createKiroPlugin()(input, {
+      modelDiscoveryCommand: [
+        process.execPath,
+        "-e",
+        "console.log(JSON.stringify({models:[{id:'new-model-1',name:'New Model 1'}]}))",
+      ],
+    })
+    const models = await hooks.provider?.models?.(
+      {
+        id: "kiro",
+        name: "Kiro",
+        models: {},
+      } as any,
+      {},
+    )
+
+    expect(models?.["new-model-1"]?.name).toBe("New Model 1")
+    expect(models?.["new-model-1"]?.api).toEqual({
+      id: "new-model-1",
+      npm: "@ai-sdk/openai-compatible",
+      url: "https://q.us-east-1.amazonaws.com",
+    })
+  })
+
   test("auth loader uses KIRO_API_KEY without requiring stored OpenCode auth", async () => {
     const original = process.env.KIRO_API_KEY
     process.env.KIRO_API_KEY = "env-key"

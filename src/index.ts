@@ -18,6 +18,7 @@ export {
   toGenerateAssistantResponseInput,
 } from "./kiro-transport.js"
 export { ModelCache } from "./model-cache.js"
+export { discoverModelsFromCommand, parseDiscoveredModels, refreshModelCacheFromCommand } from "./model-discovery.js"
 export { ModelResolutionError, ModelResolver, normalizeModelName } from "./model-resolver.js"
 export { FALLBACK_MODELS } from "./models.js"
 export { toKiroGenerateRequest } from "./request-adapter.js"
