@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { CommandRunner } from "../src/auth.js"
-import { cliChatArgs, KiroCliChatTransport, promptForCli } from "../src/cli-transport.js"
+import { cliChatArgs, KiroCliChatTransport, promptForCli, sanitizeCliChatOutput } from "../src/cli-transport.js"
 import type { KiroGenerateRequest } from "../src/request-adapter.js"
 
 const request: KiroGenerateRequest = {
@@ -43,6 +43,12 @@ describe("CLI prompt helpers", () => {
       "--trust-all-tools",
       promptForCli(request),
     ])
+  })
+
+  test("sanitizes non-interactive CLI terminal output", () => {
+    expect(sanitizeCliChatOutput("\u001b[m> \u001b[0mHello! Nice to meet you.\n\n Credits: 0.14 - Time: 3s\n")).toBe(
+      "Hello! Nice to meet you.",
+    )
   })
 })
 

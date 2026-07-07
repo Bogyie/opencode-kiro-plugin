@@ -29,6 +29,18 @@ export function cliChatArgs(request: KiroGenerateRequest, options: Pick<CliChatT
   ]
 }
 
+export function sanitizeCliChatOutput(output: string): string {
+  const text = output.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, "").replace(/\r/g, "")
+  const lines = text
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .filter((line) => !line.includes("Credits:"))
+  if (lines[0]?.trimStart().startsWith(">")) {
+    lines[0] = lines[0].replace(/^\s*>\s*/, "")
+  }
+  return lines.join("\n").trim()
+}
+
 export class KiroCliChatTransport implements KiroTransport {
   readonly #runner: CommandRunner
   readonly #trustAllTools: boolean
@@ -53,7 +65,7 @@ export class KiroCliChatTransport implements KiroTransport {
       )
     }
     return {
-      text: result.stdout.trim(),
+      text: sanitizeCliChatOutput(result.stdout),
       modelId: request.modelId,
     }
   }

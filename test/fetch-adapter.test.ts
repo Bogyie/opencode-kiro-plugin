@@ -236,6 +236,28 @@ describe("createKiroFetch", () => {
     expect(body).toContain("data: [DONE]")
   })
 
+  test("wraps non-streaming transport responses as SSE when stream is requested", async () => {
+    const fetch = createKiroFetch({
+      resolver: resolver(),
+      transport: {
+        async generate(input) {
+          return { text: `received ${input.modelId}`, modelId: input.modelId }
+        },
+      },
+    })
+
+    const response = await fetch("https://q.us-east-1.amazonaws.com/chat/completions", {
+      method: "POST",
+      body: JSON.stringify({ ...request, stream: true }),
+    })
+    const body = await response.text()
+
+    expect(response.headers.get("content-type")).toContain("text/event-stream")
+    expect(body).toContain('"content":"received claude-sonnet-4.6"')
+    expect(body).toContain('"finish_reason":"stop"')
+    expect(body).toContain("data: [DONE]")
+  })
+
   test("streams OpenAI-compatible tool-call deltas with tool-call finish reason", async () => {
     const fetch = createKiroFetch({
       resolver: resolver(),

@@ -21,6 +21,12 @@ const unsupportedTransport: KiroTransport = {
   },
 }
 
+async function* streamGeneratedResponse(transport: KiroTransport, request: KiroGenerateRequest): AsyncIterable<KiroStreamEvent> {
+  const response = await transport.generate(request)
+  if (response.text) yield { type: "text", text: response.text, modelId: response.modelId ?? request.modelId }
+  for (const toolCall of response.toolCalls ?? []) yield toolCall
+}
+
 export function createKiroFetch(options: KiroFetchOptions): FetchAdapter {
   const transport = options.transport ?? unsupportedTransport
   return async (input, init) => {
@@ -29,6 +35,9 @@ export function createKiroFetch(options: KiroFetchOptions): FetchAdapter {
       const kiroRequest = toKiroGenerateRequest(request, options.resolver)
       if (request.stream === true && transport.stream) {
         return toOpenAIChatStreamResponse(transport.stream(kiroRequest), kiroRequest.modelId)
+      }
+      if (request.stream === true) {
+        return toOpenAIChatStreamResponse(streamGeneratedResponse(transport, kiroRequest), kiroRequest.modelId)
       }
       const response = await transport.generate(kiroRequest)
       return toOpenAIChatResponse(response, kiroRequest.modelId)
