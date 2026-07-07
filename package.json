@@ -38,7 +38,8 @@
     "hooks": [
       "auth",
       "config",
-      "provider"
+      "provider",
+      "tool"
     ]
   }
 }
