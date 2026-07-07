@@ -302,6 +302,8 @@ export class KiroAcpTransport implements KiroTransport {
     const { client, owned } = this.#client()
     const promptTimeoutMs = this.#options.promptTimeoutMs ?? 120_000
     const queue = new AsyncQueue<KiroStreamEvent>()
+    let sessionId: string | undefined
+    let completed = false
     const timer = setTimeout(() => {
       queue.fail(new KiroPluginError("Timed out waiting for ACP TurnEnd notification.", "KIRO_ACP_TIMEOUT", 504))
     }, promptTimeoutMs)
@@ -312,11 +314,14 @@ export class KiroAcpTransport implements KiroTransport {
       if (text) queue.push({ type: "text", text, modelId: request.modelId })
       const toolCall = toolCallFromUpdate(update, request.modelId)
       if (toolCall) queue.push(toolCall)
-      if (isTurnEnd(update)) queue.close()
+      if (isTurnEnd(update)) {
+        completed = true
+        queue.close()
+      }
     })
 
     try {
-      const sessionId = await this.#startSession(client, request)
+      sessionId = await this.#startSession(client, request)
       const prompt = client.request("session/prompt", {
         sessionId,
         content: acpPromptContent(request),
@@ -331,6 +336,9 @@ export class KiroAcpTransport implements KiroTransport {
     } finally {
       clearTimeout(timer)
       unsubscribe()
+      if (sessionId && !completed) {
+        await client.request("session/cancel", { sessionId }).catch(() => undefined)
+      }
       if (owned) client.close?.()
     }
   }

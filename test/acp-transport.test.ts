@@ -135,6 +135,33 @@ describe("Kiro ACP transport", () => {
     expect(body).toContain("data: [DONE]")
   })
 
+  test("cancels ACP session when stream consumer stops before TurnEnd", async () => {
+    const client = new FakeAcpClient([{ update: { type: "AgentMessageChunk", content: "partial" } }])
+    const transport = new KiroAcpTransport({ client, promptTimeoutMs: 100 })
+
+    for await (const chunk of transport.stream({
+      modelId: "claude-sonnet-4.6",
+      prompt: "hello",
+      history: [],
+      tools: [],
+      toolResults: [],
+      images: [],
+      documents: [],
+      stream: true,
+      metadata: {
+        originalModel: "claude-sonnet-4-6",
+        normalizedModel: "claude-sonnet-4.6",
+        modelSource: "cache",
+        hasTools: false,
+      },
+    })) {
+      expect(chunk).toEqual({ type: "text", text: "partial", modelId: "claude-sonnet-4.6" })
+      break
+    }
+
+    expect(client.requests.at(-1)).toEqual({ method: "session/cancel", params: { sessionId: "session-1" } })
+  })
+
   test("streams Kiro ACP ToolCall notifications as OpenAI-compatible tool calls", async () => {
     const client = new FakeAcpClient([
       {
