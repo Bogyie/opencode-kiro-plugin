@@ -91,6 +91,23 @@ export function toGenerateAssistantResponseInput(
           content,
           modelId: request.modelId,
           origin: "AI_EDITOR",
+          ...(request.images.length > 0
+            ? {
+                images: request.images.map((image) => ({
+                  format: image.format,
+                  source: { bytes: image.bytes },
+                })),
+              }
+            : {}),
+          ...(request.documents.length > 0
+            ? {
+                documents: request.documents.map((document) => ({
+                  name: document.name,
+                  format: document.format,
+                  source: { bytes: document.bytes },
+                })),
+              }
+            : {}),
           userInputMessageContext:
             request.tools.length > 0 || request.toolResults.length > 0
               ? {

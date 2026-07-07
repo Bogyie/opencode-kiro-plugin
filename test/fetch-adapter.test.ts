@@ -57,6 +57,8 @@ describe("request adapter", () => {
           content: "file contents",
         },
       ],
+      images: [],
+      documents: [],
       stream: false,
       metadata: {
         originalModel: "claude-sonnet-4-6",
@@ -65,6 +67,39 @@ describe("request adapter", () => {
         hasTools: true,
       },
     })
+  })
+
+  test("extracts data URL images and PDFs from current user message", () => {
+    const mediaRequest: OpenAIChatRequest = {
+      model: "claude-sonnet-4-6",
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Describe these" },
+            { type: "image_url", image_url: { url: "data:image/png;base64,aGVsbG8=" } },
+            {
+              type: "file",
+              file: {
+                filename: "spec.pdf",
+                file_data: "data:application/pdf;base64,cGRm",
+              },
+            },
+          ],
+        },
+      ],
+    }
+
+    const converted = toKiroGenerateRequest(mediaRequest, resolver())
+
+    expect(converted.prompt).toBe("Describe these")
+    expect(converted.images).toHaveLength(1)
+    expect(converted.images[0]?.format).toBe("png")
+    expect(Array.from(converted.images[0]?.bytes ?? [])).toEqual([104, 101, 108, 108, 111])
+    expect(converted.documents).toHaveLength(1)
+    expect(converted.documents[0]?.name).toBe("spec.pdf")
+    expect(converted.documents[0]?.format).toBe("pdf")
+    expect(Array.from(converted.documents[0]?.bytes ?? [])).toEqual([112, 100, 102])
   })
 })
 

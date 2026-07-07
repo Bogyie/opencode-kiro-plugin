@@ -13,6 +13,8 @@ const request: KiroGenerateRequest = {
   ],
   tools: [],
   toolResults: [],
+  images: [],
+  documents: [],
   stream: false,
   metadata: {
     originalModel: "claude-sonnet-4-6",

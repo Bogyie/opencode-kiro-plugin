@@ -26,6 +26,8 @@ const request: KiroGenerateRequest = {
     },
   ],
   toolResults: [{ toolUseId: "call-1", toolName: "read_file", content: "file contents" }],
+  images: [{ format: "png", bytes: Uint8Array.from([1, 2, 3]) }],
+  documents: [{ name: "spec.pdf", format: "pdf", bytes: Uint8Array.from([4, 5]) }],
   stream: false,
   metadata: {
     originalModel: "claude-sonnet-4-6",
@@ -51,6 +53,8 @@ describe("toGenerateAssistantResponseInput", () => {
             content: "user: Hello",
             modelId: "claude-sonnet-4.6",
             origin: "AI_EDITOR",
+            images: [{ format: "png", source: { bytes: Uint8Array.from([1, 2, 3]) } }],
+            documents: [{ name: "spec.pdf", format: "pdf", source: { bytes: Uint8Array.from([4, 5]) } }],
             userInputMessageContext: {
               tools: [
                 {
