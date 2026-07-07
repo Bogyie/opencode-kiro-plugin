@@ -71,23 +71,35 @@ export function toOpenAIChatStreamResponse(chunks: AsyncIterable<KiroStreamEvent
   const body = new ReadableStream<Uint8Array>({
     async start(controller) {
       try {
+        const toolCallIndexes = new Map<string, number>()
+        let nextToolCallIndex = 0
+        let sawToolCall = false
         for await (const chunk of chunks) {
-          const delta =
-            chunk.type === "tool_call"
-              ? {
-                  tool_calls: [
-                    {
-                      index: 0,
-                      id: chunk.id,
-                      type: "function",
-                      function: {
-                        name: chunk.name,
-                        arguments: chunk.arguments,
-                      },
-                    },
-                  ],
-                }
-              : { content: chunk.text }
+          let delta: Record<string, unknown>
+          if (chunk.type === "tool_call") {
+            sawToolCall = true
+            let index = toolCallIndexes.get(chunk.id)
+            if (index === undefined) {
+              index = nextToolCallIndex
+              nextToolCallIndex += 1
+              toolCallIndexes.set(chunk.id, index)
+            }
+            delta = {
+              tool_calls: [
+                {
+                  index,
+                  id: chunk.id,
+                  type: "function",
+                  function: {
+                    name: chunk.name,
+                    arguments: chunk.arguments,
+                  },
+                },
+              ],
+            }
+          } else {
+            delta = { content: chunk.text }
+          }
           controller.enqueue(
             encoder.encode(
               sse({
@@ -106,7 +118,9 @@ export function toOpenAIChatStreamResponse(chunks: AsyncIterable<KiroStreamEvent
             ),
           )
         }
-        controller.enqueue(encoder.encode(sse({ choices: [{ index: 0, delta: {}, finish_reason: "stop" }] })))
+        controller.enqueue(
+          encoder.encode(sse({ choices: [{ index: 0, delta: {}, finish_reason: sawToolCall ? "tool_calls" : "stop" }] })),
+        )
         controller.enqueue(encoder.encode("data: [DONE]\n\n"))
         controller.close()
       } catch (error) {

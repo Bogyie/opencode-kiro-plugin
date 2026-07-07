@@ -232,10 +232,11 @@ describe("createKiroFetch", () => {
     expect(response.headers.get("content-type")).toContain("text/event-stream")
     expect(body).toContain('"object":"chat.completion.chunk"')
     expect(body).toContain('"content":"hel"')
+    expect(body).toContain('"finish_reason":"stop"')
     expect(body).toContain("data: [DONE]")
   })
 
-  test("streams OpenAI-compatible tool-call deltas", async () => {
+  test("streams OpenAI-compatible tool-call deltas with tool-call finish reason", async () => {
     const fetch = createKiroFetch({
       resolver: resolver(),
       transport: {
@@ -249,6 +250,12 @@ describe("createKiroFetch", () => {
             name: "read_file",
             arguments: '{"path":"README.md"}',
           }
+          yield {
+            type: "tool_call" as const,
+            id: "call-2",
+            name: "write_file",
+            arguments: '{"path":"CHANGELOG.md"}',
+          }
         },
       },
     })
@@ -260,9 +267,14 @@ describe("createKiroFetch", () => {
     const body = await response.text()
 
     expect(body).toContain('"tool_calls"')
+    expect(body).toContain('"index":0')
     expect(body).toContain('"id":"call-1"')
     expect(body).toContain('"name":"read_file"')
     expect(body).toContain('\\"README.md\\"')
+    expect(body).toContain('"index":1')
+    expect(body).toContain('"id":"call-2"')
+    expect(body).toContain('"name":"write_file"')
+    expect(body).toContain('"finish_reason":"tool_calls"')
   })
 
   test("returns structured error when transport is not configured", async () => {
