@@ -1,0 +1,30 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": [
+    [
+      "file:/absolute/path/to/opencode-kiro-plugin",
+      {
+        "backend": "auto",
+        "region": "us-east-1",
+        "modelCacheTtlSeconds": 21600,
+        "modelAliases": {
+          "sonnet": "claude-sonnet-4.6",
+          "opus": "claude-opus-4.6"
+        },
+        "hiddenModels": {},
+        "disabledModels": [],
+        "disableModelPassThrough": false,
+        "trustAllTools": false
+      }
+    ]
+  ],
+  "provider": {
+    "kiro": {
+      "models": {
+        "sonnet": {
+          "name": "Claude Sonnet via Kiro"
+        }
+      }
+    }
+  }
+}

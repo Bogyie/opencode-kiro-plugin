@@ -1,23 +1,136 @@
 # opencode-kiro-plugin
 
-OpenCode에서 Kiro를 provider처럼 사용할 수 있는 플러그인을 만들기 위한 리서치 저장소입니다.
+OpenCode server plugin that registers Kiro as an OpenAI-compatible provider and adapts requests to Kiro backends.
 
-현재 결론은 다음과 같습니다.
+Status: early implementation. The CodeWhisperer streaming transport, CLI chat fallback, model resolver, multimodal request mapping, streaming text, and tool-call chunk mapping are implemented with unit tests. The ACP backend currently exposes a JSON-RPC client and a selectable skeleton transport, but the full Kiro ACP session flow is not complete yet.
 
-- OpenCode의 공식 provider 확장 경로는 `opencode.json`의 `provider` 설정과 `@opencode-ai/plugin` 기반 server plugin입니다.
-- Kiro는 2026-07-07 기준 공개 OpenAI-compatible 또는 Anthropic-compatible LLM endpoint를 문서화하지 않습니다.
-- Kiro가 공식적으로 공개한 통합 표면은 `kiro-cli chat`, `kiro-cli chat --no-interactive`, `kiro-cli acp`입니다.
+## Install
 
-## Documents
+For local development from this repository:
 
-- [Research Summary](docs/research-summary.md)
-- [OpenCode Provider Notes](docs/opencode-provider-notes.md)
-- [Kiro Integration Notes](docs/kiro-integration-notes.md)
-- [Implementation Strategy](docs/implementation-strategy.md)
-- [Implementation Plan](docs/implementation-plan.md)
-- [Community Implementations](docs/community-implementations.md)
-- [References](docs/references.md)
+```sh
+npm install
+npm run build
+```
 
-## Current Recommendation
+Then add the plugin to your OpenCode config. See [examples/opencode.jsonc](examples/opencode.jsonc).
 
-2. 모델 목록은 정적 whitelist가 아니라 discovery cache, alias, hidden/manual override, pass-through를 갖춘 resolver로 설계합니다.
+```jsonc
+{
+  "plugin": ["file:/absolute/path/to/opencode-kiro-plugin"],
+  "provider": {
+    "kiro": {
+      "models": {
+        "sonnet": {
+          "name": "Sonnet alias"
+        }
+      }
+    }
+  }
+}
+```
+
+When published to npm, replace the local `file:` entry with the package name.
+
+## Auth
+
+The plugin resolves credentials in this order:
+
+1. `KIRO_API_KEY`
+2. OpenCode auth input for provider `kiro`
+3. `kiro-cli whoami` diagnostics for CLI session visibility
+
+Direct fetch mode requires an API key/token usable by the Kiro/CodeWhisperer client. `cli-chat` mode uses the official `kiro-cli chat --no-interactive` surface and depends on the local Kiro CLI login state.
+
+Use the `kiro_status` plugin tool to inspect provider id, backend, region, auth method, and fallback model preset count. Secrets are redacted in diagnostics.
+
+## Backend Modes
+
+Configure the backend through plugin options:
+
+```jsonc
+{
+  "plugin": [
+    [
+      "file:/absolute/path/to/opencode-kiro-plugin",
+      {
+        "backend": "auto",
+        "region": "us-east-1"
+      }
+    ]
+  ]
+}
+```
+
+Supported values:
+
+- `auto`: use CodeWhisperer fetch transport when an API key is available; otherwise use CLI chat fallback.
+- `fetch`: require the direct Kiro/CodeWhisperer fetch path. If no usable auth is available, requests fail with a structured backend/auth error.
+- `cli-chat`: call `kiro-cli chat --no-interactive`. This is official and stable, but Kiro CLI does not currently expose a guaranteed per-request model flag.
+- `acp`: select the ACP skeleton. JSON-RPC framing is implemented, but full Kiro ACP session transport currently returns `KIRO_ACP_NOT_IMPLEMENTED`.
+
+## Model Churn Handling
+
+The resolver intentionally avoids a hard whitelist. Fallback presets are used for OpenCode UI metadata and cache bootstrap only.
+
+Useful options:
+
+```jsonc
+{
+  "plugin": [
+    [
+      "file:/absolute/path/to/opencode-kiro-plugin",
+      {
+        "modelCacheTtlSeconds": 21600,
+        "modelAliases": {
+          "sonnet": "claude-sonnet-4.6",
+          "opus": "claude-opus-4.6"
+        },
+        "hiddenModels": {
+          "claude-sonnet-4.6-1m": "claude-sonnet-4.6-1m"
+        },
+        "disabledModels": ["old-model"],
+        "disableModelPassThrough": false
+      }
+    ]
+  ]
+}
+```
+
+Resolution order:
+
+1. Alias mapping
+2. Name normalization, for example `claude-sonnet-4-6` to `claude-sonnet-4.6`
+3. Disabled model check
+4. Dynamic cache hit
+5. Hidden/manual model mapping
+6. Optimistic pass-through unless disabled
+
+This keeps new Kiro model ids usable before the package is updated. Set `disableModelPassThrough: true` only when you need strict model governance.
+
+## Troubleshooting
+
+- `UNSUPPORTED_BACKEND`: selected mode has no usable transport. Check `backend` and auth.
+- `KIRO_AUTH_ERROR`: login or API key is missing/invalid.
+- `KIRO_RATE_LIMIT`: upstream quota or rate limit was hit.
+- `KIRO_NETWORK_ERROR`: timeout or connectivity issue to Kiro/AWS endpoints.
+- `KIRO_ACP_NOT_IMPLEMENTED`: ACP mode is selected, but the full session transport has not been implemented yet.
+
+For local checks:
+
+```sh
+npm test
+npm run typecheck
+npm run build
+```
+
+## License And References
+
+This project is MIT licensed. See [LICENSE](LICENSE).
+
+Reference policy:
+
+- `tickernelz/opencode-kiro-auth` is MIT licensed and used as implementation reference material.
+- Kiro CLI/IDE licensing and AWS service terms are separate from this plugin license. Use the plugin only in compliance with the applicable Kiro/AWS terms.
+
+Research notes are kept in [docs](docs).

@@ -8,7 +8,9 @@
   "files": [
     "dist",
     "README.md",
-    "docs"
+    "LICENSE",
+    "docs",
+    "examples"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
