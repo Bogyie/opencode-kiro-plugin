@@ -78,6 +78,15 @@ export function toKiroRestPayload(request: KiroGenerateRequest, profileArn?: str
         ? {
             assistantResponseMessage: {
               content: turn.content,
+              ...(turn.toolUses && turn.toolUses.length > 0
+                ? {
+                    toolUses: turn.toolUses.map((toolUse) => ({
+                      toolUseId: toolUse.toolUseId,
+                      name: toolUse.name,
+                      input: toolUse.input,
+                    })),
+                  }
+                : {}),
             },
           }
         : {

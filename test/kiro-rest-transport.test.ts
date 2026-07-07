@@ -6,7 +6,13 @@ const request: KiroGenerateRequest = {
   modelId: "claude-sonnet-4.5",
   system: "Be terse.",
   prompt: "Say hi",
-  history: [{ role: "assistant", content: "Earlier answer" }],
+  history: [
+    {
+      role: "assistant",
+      content: "Earlier answer",
+      toolUses: [{ toolUseId: "call-1", name: "read_file", input: { path: "README.md" } }],
+    },
+  ],
   tools: [
     {
       name: "read_file",
@@ -81,6 +87,26 @@ describe("KiroRestTransport", () => {
       },
       conversationState: {
         chatTriggerType: "MANUAL",
+        history: [
+          {
+            userInputMessage: {
+              content: "Be terse.",
+              modelId: "claude-sonnet-4.5",
+              origin: "AI_EDITOR",
+            },
+          },
+          {
+            assistantResponseMessage: {
+              content: "I will follow these instructions.",
+            },
+          },
+          {
+            assistantResponseMessage: {
+              content: "Earlier answer",
+              toolUses: [{ toolUseId: "call-1", name: "read_file", input: { path: "README.md" } }],
+            },
+          },
+        ],
         currentMessage: {
           userInputMessage: {
             content: "Say hi",

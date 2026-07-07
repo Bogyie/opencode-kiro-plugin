@@ -84,6 +84,13 @@ export interface KiroDocumentBlock {
 export interface KiroConversationTurn {
   readonly role: "user" | "assistant" | "tool"
   readonly content: string
+  readonly toolUses?: ReadonlyArray<KiroConversationToolUse>
+}
+
+export interface KiroConversationToolUse {
+  readonly toolUseId: string
+  readonly name: string
+  readonly input: unknown
 }
 
 export interface KiroToolSpec {
@@ -202,17 +209,6 @@ function toolSpecs(tools: ReadonlyArray<OpenAITool> | undefined): KiroToolSpec[]
   }))
 }
 
-function requestedToolCallIds(messages: ReadonlyArray<OpenAIChatMessage>): Set<string> {
-  const ids = new Set<string>()
-  for (const message of messages) {
-    if (message.role !== "assistant") continue
-    for (const toolCall of message.tool_calls ?? []) {
-      if (toolCall.id) ids.add(toolCall.id)
-    }
-  }
-  return ids
-}
-
 function toolNameById(messages: ReadonlyArray<OpenAIChatMessage>): Map<string, string> {
   const names = new Map<string, string>()
   for (const message of messages) {
@@ -225,13 +221,26 @@ function toolNameById(messages: ReadonlyArray<OpenAIChatMessage>): Map<string, s
 }
 
 function toolResults(messages: ReadonlyArray<OpenAIChatMessage>): KiroToolResult[] {
-  const requested = requestedToolCallIds(messages)
   const names = toolNameById(messages)
+  const nonSystemMessages = messages.filter((message) => message.role !== "system")
+  const trailingTools: OpenAIChatMessage[] = []
+  let index = nonSystemMessages.length - 1
+  while (index >= 0 && nonSystemMessages[index]?.role === "tool") {
+    const message = nonSystemMessages[index]
+    if (message) trailingTools.unshift(message)
+    index -= 1
+  }
+  if (trailingTools.length === 0) return []
+
+  const previous = nonSystemMessages[index]
+  if (!previous || previous.role !== "assistant") return []
+  const activeToolIds = new Set((previous.tool_calls ?? []).map((toolCall) => toolCall.id).filter((id): id is string => Boolean(id)))
+  if (activeToolIds.size === 0) return []
+
   const results = new Map<string, KiroToolResult>()
 
-  for (const message of messages) {
-    if (message.role !== "tool" || !message.tool_call_id) continue
-    if (requested.size > 0 && !requested.has(message.tool_call_id)) continue
+  for (const message of trailingTools) {
+    if (!message.tool_call_id || !activeToolIds.has(message.tool_call_id)) continue
     const toolName = message.name ?? names.get(message.tool_call_id)
     results.set(message.tool_call_id, {
       toolUseId: message.tool_call_id,
@@ -241,6 +250,38 @@ function toolResults(messages: ReadonlyArray<OpenAIChatMessage>): KiroToolResult
   }
 
   return [...results.values()]
+}
+
+function trailingToolMessageIndexes(messages: ReadonlyArray<OpenAIChatMessage>): Set<number> {
+  const indexes = new Set<number>()
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]
+    if (!message || message.role === "system") continue
+    if (message.role !== "tool") break
+    indexes.add(index)
+  }
+  return indexes
+}
+
+function toolUses(message: OpenAIChatMessage): KiroConversationToolUse[] {
+  return (message.tool_calls ?? [])
+    .map((toolCall) => {
+      if (!toolCall.id || !toolCall.function?.name) return undefined
+      let input: unknown = {}
+      if (toolCall.function.arguments) {
+        try {
+          input = JSON.parse(toolCall.function.arguments) as unknown
+        } catch {
+          input = toolCall.function.arguments
+        }
+      }
+      return {
+        toolUseId: toolCall.id,
+        name: toolCall.function.name,
+        input,
+      }
+    })
+    .filter((item): item is KiroConversationToolUse => item !== undefined)
 }
 
 function finiteNumber(value: unknown): number | undefined {
@@ -283,21 +324,32 @@ export async function readOpenAIRequest(input: RequestInfo | URL, init?: Request
 
 export function toKiroGenerateRequest(request: OpenAIChatRequest, resolver: ModelResolver): KiroGenerateRequest {
   const resolved = resolver.resolve(request.model)
+  const activeToolResults = toolResults(request.messages)
+  const activeTrailingToolIndexes = activeToolResults.length > 0 ? trailingToolMessageIndexes(request.messages) : new Set<number>()
   const system = request.messages
     .filter((message) => message.role === "system")
     .map((message) => textFromContent(message.content))
     .filter(Boolean)
     .join("\n\n")
-  const turns = request.messages
-    .filter((message) => message.role !== "system")
-    .map((message) => {
-      const content = textFromContent(message.content)
-      return content ? { role: message.role, content } : undefined
+  const turns: KiroConversationTurn[] = []
+  for (const [index, message] of request.messages.entries()) {
+    if (message.role === "system" || activeTrailingToolIndexes.has(index)) continue
+    const content = textFromContent(message.content)
+    const assistantToolUses = message.role === "assistant" ? toolUses(message) : []
+    if (!content && assistantToolUses.length === 0) continue
+    turns.push({
+      role: message.role,
+      content,
+      ...(assistantToolUses.length > 0 ? { toolUses: assistantToolUses } : {}),
     })
-    .filter((item): item is KiroConversationTurn => item !== undefined)
-  const current = turns.at(-1)
-  const history = turns.slice(0, -1)
-  const currentMessage = request.messages.filter((message) => message.role !== "system").at(-1)
+  }
+  const current = activeToolResults.length > 0 ? undefined : turns.at(-1)
+  const history = activeToolResults.length > 0 ? turns : turns.slice(0, -1)
+  const currentMessage = request.messages
+    .map((message, index) => ({ message, index }))
+    .filter(({ message, index }) => message.role !== "system" && !activeTrailingToolIndexes.has(index))
+    .map(({ message }) => message)
+    .at(-1)
   const media = mediaFromContent(currentMessage?.content)
 
   return {
@@ -305,7 +357,7 @@ export function toKiroGenerateRequest(request: OpenAIChatRequest, resolver: Mode
     prompt: current?.content ?? "",
     history,
     tools: toolSpecs(request.tools),
-    toolResults: toolResults(request.messages),
+    toolResults: activeToolResults,
     images: media.images,
     documents: media.documents,
     modelOptions: modelOptions(request),

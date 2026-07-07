@@ -62,13 +62,7 @@ describe("request adapter", () => {
           inputSchema: { type: "object", properties: { path: { type: "string" } }, required: ["path"] },
         },
       ],
-      toolResults: [
-        {
-          toolUseId: "call-1",
-          toolName: "read_file",
-          content: "file contents",
-        },
-      ],
+      toolResults: [],
       images: [],
       documents: [],
       modelOptions: {},
@@ -115,7 +109,7 @@ describe("request adapter", () => {
     expect(Array.from(converted.documents[0]?.bytes ?? [])).toEqual([112, 100, 102])
   })
 
-  test("deduplicates tool results and drops orphan results when assistant tool calls are present", () => {
+  test("does not attach historical tool results after a new user turn", () => {
     const converted = toKiroGenerateRequest(
       {
         model: "claude-sonnet-4-6",
@@ -141,6 +135,60 @@ describe("request adapter", () => {
       resolver(),
     )
 
+    expect(converted.history).toContainEqual({
+      role: "assistant",
+      content: "",
+      toolUses: [
+        {
+          toolUseId: "call-1",
+          name: "read_file",
+          input: { path: "a" },
+        },
+      ],
+    })
+    expect(converted.toolResults).toEqual([])
+  })
+
+  test("attaches only trailing tool results that match the previous assistant tool calls", () => {
+    const converted = toKiroGenerateRequest(
+      {
+        model: "claude-sonnet-4-6",
+        messages: [
+          { role: "user", content: "Use tools" },
+          {
+            role: "assistant",
+            content: "",
+            tool_calls: [
+              {
+                id: "call-1",
+                type: "function",
+                function: { name: "read_file", arguments: '{"path":"a"}' },
+              },
+            ],
+          },
+          { role: "tool", tool_call_id: "orphan", name: "read_file", content: "ignore" },
+          { role: "tool", tool_call_id: "call-1", content: "old" },
+          { role: "tool", tool_call_id: "call-1", content: "latest" },
+        ],
+      },
+      resolver(),
+    )
+
+    expect(converted.prompt).toBe("")
+    expect(converted.history).toEqual([
+      { role: "user", content: "Use tools" },
+      {
+        role: "assistant",
+        content: "",
+        toolUses: [
+          {
+            toolUseId: "call-1",
+            name: "read_file",
+            input: { path: "a" },
+          },
+        ],
+      },
+    ])
     expect(converted.toolResults).toEqual([
       {
         toolUseId: "call-1",
