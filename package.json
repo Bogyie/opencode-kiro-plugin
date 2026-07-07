@@ -1,0 +1,41 @@
+{
+  "name": "opencode-kiro-plugin",
+  "version": "0.1.0",
+  "description": "OpenCode plugin for using Kiro as a provider adapter",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "docs"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "opencode",
+    "plugin",
+    "kiro",
+    "provider"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@opencode-ai/plugin": "^1.15.11"
+  },
+  "devDependencies": {
+    "bun-types": "^1.3.8",
+    "@types/node": "^26.0.0",
+    "typescript": "^5.9.0"
+  },
+  "opencode": {
+    "type": "plugin",
+    "hooks": [
+      "auth",
+      "config",
+      "provider"
+    ]
+  }
+}
