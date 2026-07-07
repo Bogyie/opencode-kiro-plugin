@@ -11,6 +11,7 @@ import { ModelCache } from "./model-cache.js"
 import { refreshModelCacheFromCommand } from "./model-discovery.js"
 import { ModelResolver, normalizeModelName } from "./model-resolver.js"
 import { CodeWhispererKiroTransport } from "./kiro-transport.js"
+import type { KiroTransportOptions } from "./kiro-transport.js"
 import { FALLBACK_MODELS, type ProviderModelConfig } from "./models.js"
 
 type MutableConfig = Record<string, any>
@@ -44,10 +45,26 @@ export function acpTransportOptions(options: Pick<KiroPluginOptions, "requestTim
   }
 }
 
+export function fetchTransportOptions(
+  options: Pick<KiroPluginOptions, "region" | "endpoint" | "profileArn" | "userAgent" | "agentMode" | "maxAttempts" | "requestTimeoutMs">,
+  accessToken: string,
+): KiroTransportOptions {
+  return {
+    region: options.region,
+    accessToken,
+    maxAttempts: options.maxAttempts,
+    ...(options.endpoint ? { endpoint: options.endpoint } : {}),
+    ...(options.profileArn ? { profileArn: options.profileArn } : {}),
+    ...(options.userAgent ? { userAgent: options.userAgent } : {}),
+    ...(options.agentMode ? { agentMode: options.agentMode } : {}),
+    ...(options.requestTimeoutMs ? { requestTimeoutMs: options.requestTimeoutMs } : {}),
+  }
+}
+
 export function createKiroPlugin(): Plugin {
   return async (_input, rawOptions): Promise<Hooks> => {
     const options = loadOptions(rawOptions)
-    const baseURL = `https://q.${options.region}.amazonaws.com`
+    const baseURL = options.endpoint ?? `https://q.${options.region}.amazonaws.com`
     const modelCache = new ModelCache(options.modelCacheTtlSeconds)
     modelCache.update([...Object.keys(FALLBACK_MODELS), ...Object.keys(options.extraModels)].map((id) => ({ id: normalizeModelName(id) })))
     let discovery: Promise<void> | undefined
@@ -125,12 +142,7 @@ export function createKiroPlugin(): Plugin {
                   ...(options.requestTimeoutMs ? { requestTimeoutMs: options.requestTimeoutMs } : {}),
                 })
               : apiKey
-                ? new CodeWhispererKiroTransport({
-                    region: options.region,
-                    accessToken: apiKey,
-                    maxAttempts: options.maxAttempts,
-                    ...(options.requestTimeoutMs ? { requestTimeoutMs: options.requestTimeoutMs } : {}),
-                  })
+                ? new CodeWhispererKiroTransport(fetchTransportOptions(options, apiKey))
                 : options.backend === "auto"
                   ? new KiroCliChatTransport({
                       trustAllTools: options.trustAllTools,

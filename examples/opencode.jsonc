@@ -6,6 +6,11 @@
       {
         "backend": "auto",
         "region": "us-east-1",
+        // Optional direct fetch overrides:
+        // "endpoint": "https://q.us-east-1.amazonaws.com",
+        // "profileArn": "arn:aws:q:...",
+        // "userAgent": "KiroIDE",
+        // "agentMode": "vibe",
         "modelCacheTtlSeconds": 21600,
         "modelDiscovery": "auto",
         "modelDiscoveryCommand": [],

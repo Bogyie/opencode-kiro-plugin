@@ -4,12 +4,16 @@ export type ModelDiscoveryMode = "auto" | "off"
 export interface KiroPluginOptions {
   readonly providerID: string
   readonly region: string
+  readonly endpoint?: string
   readonly backend: BackendMode
   readonly modelDiscovery: ModelDiscoveryMode
   readonly modelDiscoveryCommand: ReadonlyArray<string>
   readonly modelCacheTtlSeconds: number
   readonly requestTimeoutMs?: number
   readonly maxAttempts: number
+  readonly profileArn?: string
+  readonly userAgent?: string
+  readonly agentMode?: string
   readonly modelAliases: Readonly<Record<string, string>>
   readonly extraModels: Readonly<Record<string, Record<string, unknown>>>
   readonly hiddenModels: Readonly<Record<string, string>>
@@ -65,6 +69,12 @@ function optionalPositiveNumber(value: unknown): number | undefined {
   return value
 }
 
+function optionalString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined
+  const trimmed = value.trim()
+  return trimmed || undefined
+}
+
 export function loadOptions(raw: unknown = {}): KiroPluginOptions {
   const input = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {}
   const backend: BackendMode =
@@ -74,16 +84,24 @@ export function loadOptions(raw: unknown = {}): KiroPluginOptions {
       ? (input.modelDiscovery as ModelDiscoveryMode)
       : "auto"
   const requestTimeoutMs = optionalPositiveNumber(input.requestTimeoutMs)
+  const endpoint = optionalString(input.endpoint)
+  const profileArn = optionalString(input.profileArn)
+  const userAgent = optionalString(input.userAgent)
+  const agentMode = optionalString(input.agentMode)
 
   return {
     providerID: typeof input.providerID === "string" && input.providerID ? input.providerID : DEFAULT_PROVIDER_ID,
     region: typeof input.region === "string" && input.region ? input.region : DEFAULT_REGION,
+    ...(endpoint ? { endpoint } : {}),
     backend,
     modelDiscovery,
     modelDiscoveryCommand: stringArray(input.modelDiscoveryCommand),
     modelCacheTtlSeconds: positiveNumber(input.modelCacheTtlSeconds, DEFAULT_MODEL_CACHE_TTL_SECONDS),
     ...(requestTimeoutMs ? { requestTimeoutMs } : {}),
     maxAttempts: positiveInteger(input.maxAttempts, DEFAULT_MAX_ATTEMPTS),
+    ...(profileArn ? { profileArn } : {}),
+    ...(userAgent ? { userAgent } : {}),
+    ...(agentMode ? { agentMode } : {}),
     modelAliases: stringRecord(input.modelAliases),
     extraModels: objectRecord(input.extraModels),
     hiddenModels: stringRecord(input.hiddenModels),

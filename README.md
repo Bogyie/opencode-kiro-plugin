@@ -71,8 +71,10 @@ Configure the backend through plugin options:
       {
         "backend": "auto",
         "region": "us-east-1",
+        "endpoint": "https://q.us-east-1.amazonaws.com",
         "maxAttempts": 3,
-        "requestTimeoutMs": 120000
+        "requestTimeoutMs": 120000,
+        "agentMode": "vibe"
       }
     ]
   ]
@@ -149,7 +151,7 @@ This keeps new Kiro model ids usable before the package is updated. Use `extraMo
 - `KIRO_ACP_TIMEOUT`: ACP did not send a `TurnEnd` notification before the prompt timeout.
 - `KIRO_ACP_PROCESS_ERROR` or `KIRO_ACP_PROCESS_EXITED`: `kiro-cli acp` could not start or exited while a request was pending.
 
-Direct fetch mode uses AWS SDK standard retry behavior. Tune `maxAttempts` and `requestTimeoutMs` if you need stricter failure boundaries in automation. `cli-chat` uses `requestTimeoutMs` for the `kiro-cli chat --no-interactive` child process, and ACP uses it while waiting for `session/prompt` completion and `TurnEnd`.
+Direct fetch mode uses AWS SDK standard retry behavior. Tune `maxAttempts` and `requestTimeoutMs` if you need stricter failure boundaries in automation. Fetch mode also accepts `endpoint`, `profileArn`, `userAgent`, and `agentMode` for controlled environments. `cli-chat` uses `requestTimeoutMs` for the `kiro-cli chat --no-interactive` child process, and ACP uses it while waiting for `session/prompt` completion and `TurnEnd`.
 
 For local checks:
 

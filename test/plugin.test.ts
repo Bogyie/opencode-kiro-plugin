@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { acpTransportOptions, createKiroPlugin } from "../src/plugin.js"
+import { acpTransportOptions, createKiroPlugin, fetchTransportOptions } from "../src/plugin.js"
 
 const input = {
   client: {},
@@ -19,6 +19,32 @@ describe("Kiro plugin", () => {
     })
     expect(acpTransportOptions({ trustAllTools: false })).toEqual({
       trustAllTools: false,
+    })
+  })
+
+  test("maps plugin fetch options to CodeWhisperer transport options", () => {
+    expect(
+      fetchTransportOptions(
+        {
+          region: "eu-central-1",
+          endpoint: "https://custom.example",
+          profileArn: "arn:aws:q:test",
+          userAgent: "custom-agent",
+          agentMode: "agentic",
+          maxAttempts: 5,
+          requestTimeoutMs: 30_000,
+        },
+        "token",
+      ),
+    ).toEqual({
+      region: "eu-central-1",
+      accessToken: "token",
+      endpoint: "https://custom.example",
+      profileArn: "arn:aws:q:test",
+      userAgent: "custom-agent",
+      agentMode: "agentic",
+      maxAttempts: 5,
+      requestTimeoutMs: 30_000,
     })
   })
 
@@ -95,6 +121,29 @@ describe("Kiro plugin", () => {
       npm: "@ai-sdk/openai-compatible",
       url: "https://q.eu-central-1.amazonaws.com",
     })
+  })
+
+  test("provider hook uses custom endpoint for provider API metadata", async () => {
+    const hooks = await createKiroPlugin()(input, {
+      region: "eu-central-1",
+      endpoint: "https://custom.example",
+    })
+    const config: any = {}
+
+    await hooks.config?.(config)
+    const models = await hooks.provider?.models?.(
+      {
+        id: "kiro",
+        name: "Kiro",
+        models: {
+          auto: { name: "Auto" },
+        },
+      } as any,
+      {},
+    )
+
+    expect(config.provider.kiro.api).toBe("https://custom.example")
+    expect(models?.auto?.api.url).toBe("https://custom.example")
   })
 
   test("provider hook can discover models from a configured command", async () => {

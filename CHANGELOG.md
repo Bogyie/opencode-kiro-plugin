@@ -17,6 +17,7 @@ Initial OpenCode Kiro provider plugin implementation.
 - CLI fallback using `kiro-cli chat --no-interactive`.
 - CLI fallback responses are wrapped as OpenAI-compatible SSE for streaming OpenCode calls and sanitized to remove terminal prompt/credits output.
 - CLI fallback child process timeout can be controlled with `requestTimeoutMs`.
+- Direct fetch backend now exposes `endpoint`, `profileArn`, `userAgent`, and `agentMode` plugin options.
 - ACP fallback using `kiro-cli acp` JSON-RPC stdio with initialize/session/model/prompt flow.
 - ACP streaming for `AgentMessageChunk`, basic `ToolCall` events, and embedded document resources.
 - ACP tool-call update handling now ignores progress/result-only updates that do not carry invocation payloads and deduplicates repeated tool calls by id in non-streaming responses.

@@ -28,8 +28,10 @@ Config:
       {
         "backend": "fetch",
         "region": "us-east-1",
+        "endpoint": "https://q.us-east-1.amazonaws.com",
         "maxAttempts": 3,
-        "requestTimeoutMs": 120000
+        "requestTimeoutMs": 120000,
+        "agentMode": "vibe"
       }
     ]
   ]
@@ -51,6 +53,7 @@ Checks:
 - Invalid/expired auth returns `KIRO_AUTH_ERROR`, not a raw SDK exception.
 - Rate/quota failure returns `KIRO_RATE_LIMIT`.
 - Lowering `requestTimeoutMs` produces `KIRO_TIMEOUT`.
+- Custom `endpoint`, `profileArn`, `userAgent`, and `agentMode` values are passed to the direct fetch transport when configured.
 
 ## Backend: cli-chat
 
