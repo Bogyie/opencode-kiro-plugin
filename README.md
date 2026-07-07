@@ -34,15 +34,15 @@ Then add the plugin to your OpenCode config. See [examples/opencode.jsonc](examp
 The plugin resolves credentials in this order:
 
 1. `KIRO_API_KEY`
-2. OpenCode auth input for provider `kiro`
+2. OpenCode auth input for provider `kiro`, including stored Kiro device-flow credentials
 3. Local Kiro CLI session token from the Kiro CLI SQLite store
 4. `kiro-cli whoami` diagnostics for CLI session visibility
 
-When no usable Kiro CLI session is available, OpenCode's startup model discovery may start the same Kiro CLI login flow automatically. The plugin runs `kiro-cli login`, waits for login to complete through `kiro-cli whoami`, and then runs the model discovery command one more time. If that login fails or times out, discovery fails for that startup attempt; it does not loop.
+When no usable Kiro CLI session is available, OpenCode's startup model discovery does not start browser login. If startup discovery cannot list models, the plugin keeps Kiro visible with an `auto` placeholder model.
 
-You can also open OpenCode's provider connector, choose Kiro, and select `Kiro CLI login`. The connector flow starts `kiro-cli login`, waits until the login URL/device code is visible, returns it to the connector, and then waits until `kiro-cli whoami` succeeds. Direct fetch mode uses a usable API key/token when one is configured; otherwise it reads the active Kiro CLI session token and calls Kiro's REST/EventStream endpoint directly. If credentials expire during use, direct fetch and `cli-chat` start the shared Kiro login flow, wait for it to complete, and retry the failed request once. `cli-chat` mode uses the official `kiro-cli chat --no-interactive` surface and depends on the local Kiro CLI login state. `acp` mode uses the official `kiro-cli acp` surface, but is still treated as an explicit backend while its real-world protocol behavior is validated across Kiro CLI versions.
+You can open OpenCode's provider connector, choose Kiro, and select `Kiro device login`. The connector uses AWS OIDC device authorization directly, so it does not rely on a localhost callback URL. After login succeeds, the plugin stores the access token, refresh token, OIDC client credentials, region, and optional profile ARN in OpenCode auth. Direct fetch mode reuses that stored credential and refreshes the access token before expiry; it does not ask you to log in again while the refresh token remains valid. If no OpenCode device credential or API key is configured, direct fetch reads the active Kiro CLI session token and calls Kiro's REST/EventStream endpoint directly. `cli-chat` mode uses the official `kiro-cli chat --no-interactive` surface and depends on the local Kiro CLI login state. `acp` mode uses the official `kiro-cli acp` surface, but is still treated as an explicit backend while its real-world protocol behavior is validated across Kiro CLI versions.
 
-For AWS IAM Identity Center login, configure the CLI login arguments separately from the API region:
+For AWS IAM Identity Center login, configure the default device-flow Start URL separately from the API region:
 
 ```jsonc
 {
@@ -62,7 +62,7 @@ For AWS IAM Identity Center login, configure the CLI login arguments separately 
 }
 ```
 
-This runs `kiro-cli login --license pro --identity-provider https://example.awsapps.com/start --region ap-northeast-2`. Do not enable `login.useDeviceFlow` for the normal browser callback flow; Kiro CLI needs to keep its localhost callback listener alive while the browser redirects back.
+The connector can also prompt for the Start URL, OIDC region, and optional profile ARN. For IAM Identity Center, the plugin opens the AWS portal device URL, such as `https://example.awsapps.com/start/#/device?user_code=...`, instead of a `localhost` callback URL.
 
 Use the `kiro_status` plugin tool to inspect provider id, backend, region, auth method, and discovered model count. Secrets are redacted in diagnostics.
 
@@ -78,7 +78,7 @@ Configure the backend through plugin options:
       {
         "backend": "auto",
         "region": "us-east-1",
-        // Optional Kiro CLI login overrides:
+        // Optional Kiro device login defaults:
         // "login": {
         //   "license": "pro",
         //   "identityProvider": "https://example.awsapps.com/start",
@@ -155,7 +155,7 @@ This keeps new Kiro model ids usable before the package is updated without adver
 
 The plugin injects `provider.kiro` automatically. You only need to add `provider.kiro.models` yourself when overriding OpenCode model-picker metadata, such as a display name or context limit. Use plugin `modelAliases` for aliases that should resolve one requested model id to another.
 
-`modelDiscoveryCommand` defaults to `["kiro-cli", "chat", "--list-models", "--format", "json"]`. Set `modelDiscovery` to `"off"` to skip runtime discovery. If this command fails with an auth error, the plugin starts Kiro CLI login, waits for it to finish, and retries the command once. Discovery stdout can be a JSON array, `{ "models": [...] }`, `{ "data": [...] }`, Kiro CLI list-models JSON, Kiro CLI plain list output, or one model id per line.
+`modelDiscoveryCommand` defaults to `["kiro-cli", "chat", "--list-models", "--format", "json"]`. Set `modelDiscovery` to `"off"` to skip runtime discovery. If this command fails during startup, the provider remains visible with the `auto` placeholder and you can connect Kiro through OpenCode's provider connector. Discovery stdout can be a JSON array, `{ "models": [...] }`, `{ "data": [...] }`, Kiro CLI list-models JSON, Kiro CLI plain list output, or one model id per line.
 
 ## Troubleshooting
 

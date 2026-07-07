@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { encodeKiroDeviceAuthKey } from "../src/auth.js"
 import { acpTransportOptions, createKiroPlugin, effectiveBackend, fetchTransportOptions } from "../src/plugin.js"
 
 const input = {
@@ -166,6 +167,23 @@ describe("Kiro plugin", () => {
     await hooks.dispose?.()
   })
 
+  test("does not start browser login during startup discovery auth failures", async () => {
+    const hooks = await createKiroPlugin()(input, {
+      modelDiscoveryCommand: [process.execPath, "-e", "console.error('not logged in'); process.exit(1)"],
+      login: {
+        license: "pro",
+        identityProvider: "https://example.awsapps.com/start",
+        region: "ap-northeast-2",
+      },
+    })
+    const config: any = {}
+
+    await hooks.config?.(config)
+
+    expect(config.provider.kiro.models.auto).toEqual({ name: "Auto" })
+    await hooks.dispose?.()
+  })
+
   test("provider hook adds OpenAI-compatible API metadata only to discovered or configured models", async () => {
     const hooks = await createKiroPlugin()(input, { ...withoutDiscovery, region: "eu-central-1" })
     const config: any = {
@@ -299,6 +317,28 @@ describe("Kiro plugin", () => {
       if (original === undefined) delete process.env.KIRO_API_KEY
       else process.env.KIRO_API_KEY = original
     }
+  })
+
+  test("auth loader preserves stored Kiro device OAuth keys", async () => {
+    const key = encodeKiroDeviceAuthKey({
+      accessToken: "access",
+      refreshToken: "refresh",
+      expiresAt: Date.now() + 3600_000,
+      clientId: "client-id",
+      clientSecret: "client-secret",
+      oidcRegion: "ap-northeast-2",
+      region: "us-east-1",
+      startUrl: "https://example.awsapps.com/start",
+    })
+    const hooks = await createKiroPlugin()(input, withoutDiscovery)
+    const loaded = await hooks.auth?.loader?.(
+      async () => ({ type: "oauth", access: key, refresh: "refresh", expires: Date.now() + 3600_000 }),
+      {} as any,
+    )
+
+    expect(loaded?.apiKey).toBe(key)
+    expect(loaded?.baseURL?.startsWith("http://127.0.0.1:")).toBe(true)
+    await hooks.dispose?.()
   })
 
   test("auth loader can be created with extra models without pass-through", async () => {

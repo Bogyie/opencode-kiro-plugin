@@ -50,6 +50,8 @@ export interface KiroCliSessionCredentialOptions {
   readonly tokenKeys?: ReadonlyArray<string>
 }
 
+export type KiroAuthFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+
 export interface KiroLoginSession {
   readonly url: string
   readonly code: string | undefined
@@ -66,6 +68,31 @@ export interface KiroCliLoginOptions {
   readonly extraArgs?: ReadonlyArray<string>
 }
 
+export interface KiroDeviceAuthorization {
+  readonly verificationUrl: string
+  readonly verificationUrlComplete: string
+  readonly userCode: string
+  readonly deviceCode: string
+  readonly clientId: string
+  readonly clientSecret: string
+  readonly intervalSeconds: number
+  readonly expiresInSeconds: number
+  readonly oidcRegion: string
+  readonly startUrl: string
+}
+
+export interface KiroDeviceAuthCredential {
+  readonly accessToken: string
+  readonly refreshToken: string
+  readonly expiresAt: number
+  readonly clientId: string
+  readonly clientSecret: string
+  readonly oidcRegion: string
+  readonly region: string
+  readonly startUrl: string
+  readonly profileArn?: string
+}
+
 export interface KiroLoginFlowOptions {
   readonly spawner?: ProcessSpawner
   readonly runner?: CommandRunner
@@ -76,12 +103,23 @@ export interface KiroLoginFlowOptions {
 export const KIRO_LOGIN_URL = "https://view.awsapps.com/start"
 export const DEFAULT_KIRO_CLI_DB_PATH = join(homedir(), "Library", "Application Support", "kiro-cli", "data.sqlite3")
 export const DEFAULT_KIRO_CLI_TOKEN_KEYS = ["kirocli:odic:token", "codewhisperer:odic:token"] as const
+const KIRO_DEVICE_AUTH_KEY_PREFIX = "kiro-device:"
+const KIRO_OIDC_SCOPES = [
+  "codewhisperer:completions",
+  "codewhisperer:analysis",
+  "codewhisperer:conversations",
+  "codewhisperer:transformations",
+  "codewhisperer:taskassist",
+] as const
 const LOGIN_REUSE_WINDOW_MS = 2 * 60 * 1000
+const TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000
 let sharedLoginSession: KiroLoginSession | undefined
 let sharedLoginStartedAt = 0
 let sharedLoginSessionKey = ""
 let sharedLoginFlow: Promise<boolean> | undefined
 let sharedLoginFlowKey = ""
+const refreshedDeviceCredentials = new Map<string, KiroDeviceAuthCredential>()
+const deviceRefreshes = new Map<string, Promise<KiroDeviceAuthCredential>>()
 
 export async function runCommand(command: string, args: ReadonlyArray<string>, options: CommandRunOptions = {}): Promise<CommandResult> {
   try {
@@ -109,6 +147,14 @@ function jsonObject(value: string): Record<string, unknown> | undefined {
   } catch {
     return undefined
   }
+}
+
+function numberField(input: Record<string, unknown> | undefined, ...keys: string[]): number | undefined {
+  for (const key of keys) {
+    const value = input?.[key]
+    if (typeof value === "number" && Number.isFinite(value)) return value
+  }
+  return undefined
 }
 
 function stringField(input: Record<string, unknown> | undefined, ...keys: string[]): string | undefined {
@@ -176,6 +222,268 @@ export async function readKiroCliSessionCredential(
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function normalizeStartUrl(raw: string | undefined): string {
+  const value = raw?.trim() || KIRO_LOGIN_URL
+  const url = new URL(value)
+  url.hash = ""
+  url.search = ""
+  if (url.pathname.endsWith("/start/")) url.pathname = url.pathname.replace(/\/start\/$/, "/start")
+  if (!url.pathname.endsWith("/start")) url.pathname = `${url.pathname.replace(/\/+$/, "")}/start`
+  return url.toString()
+}
+
+export function kiroDeviceVerificationUrl(startUrl: string, userCode: string): string {
+  const url = new URL(startUrl)
+  url.search = ""
+  if (url.pathname.endsWith("/start")) url.pathname = `${url.pathname}/`
+  url.pathname = url.pathname.replace(/\/start\/?$/, "/start/")
+  url.hash = `#/device?user_code=${encodeURIComponent(userCode)}`
+  return url.toString()
+}
+
+function oidcEndpoint(region: string): string {
+  return `https://oidc.${region || "us-east-1"}.amazonaws.com`
+}
+
+function deviceAuthUserAgent(): string {
+  return "KiroIDE"
+}
+
+async function jsonResponse(response: Response): Promise<Record<string, unknown>> {
+  const text = await response.text()
+  const parsed = jsonObject(text)
+  if (!parsed) throw new Error(`Kiro auth returned invalid JSON: ${text.slice(0, 200)}`)
+  if (!response.ok) {
+    const message = stringField(parsed, "message", "error_description", "error") ?? text.slice(0, 200)
+    throw new Error(`Kiro auth request failed: HTTP ${response.status} ${message}`)
+  }
+  return parsed
+}
+
+export async function authorizeKiroDevice(
+  options: KiroCliLoginOptions = {},
+  fetcher: KiroAuthFetch = fetch,
+): Promise<KiroDeviceAuthorization> {
+  const oidcRegion = options.region || "us-east-1"
+  const startUrl = normalizeStartUrl(options.identityProvider)
+  const endpoint = oidcEndpoint(oidcRegion)
+  const register = await jsonResponse(
+    await fetcher(`${endpoint}/client/register`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "user-agent": deviceAuthUserAgent(),
+      },
+      body: JSON.stringify({
+        clientName: "Kiro IDE",
+        clientType: "public",
+        scopes: KIRO_OIDC_SCOPES,
+        grantTypes: ["urn:ietf:params:oauth:grant-type:device_code", "refresh_token"],
+      }),
+    }),
+  )
+  const clientId = stringField(register, "clientId", "client_id")
+  const clientSecret = stringField(register, "clientSecret", "client_secret")
+  if (!clientId || !clientSecret) throw new Error("Kiro auth client registration did not return client credentials.")
+
+  const authorization = await jsonResponse(
+    await fetcher(`${endpoint}/device_authorization`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "user-agent": deviceAuthUserAgent(),
+      },
+      body: JSON.stringify({
+        clientId,
+        clientSecret,
+        startUrl,
+      }),
+    }),
+  )
+  const verificationUrl = stringField(authorization, "verificationUri", "verification_uri")
+  const verificationUrlComplete = stringField(authorization, "verificationUriComplete", "verification_uri_complete")
+  const userCode = stringField(authorization, "userCode", "user_code")
+  const deviceCode = stringField(authorization, "deviceCode", "device_code")
+  if (!verificationUrl || !verificationUrlComplete || !userCode || !deviceCode) {
+    throw new Error("Kiro device authorization response did not return required fields.")
+  }
+  return {
+    verificationUrl,
+    verificationUrlComplete,
+    userCode,
+    deviceCode,
+    clientId,
+    clientSecret,
+    intervalSeconds: numberField(authorization, "interval") ?? 5,
+    expiresInSeconds: numberField(authorization, "expiresIn", "expires_in") ?? 600,
+    oidcRegion,
+    startUrl,
+  }
+}
+
+export async function pollKiroDeviceToken(
+  authorization: KiroDeviceAuthorization,
+  options: Pick<KiroDeviceAuthCredential, "region" | "profileArn">,
+  fetcher: KiroAuthFetch = fetch,
+): Promise<KiroDeviceAuthCredential> {
+  const maxAttempts = Math.max(1, Math.floor(authorization.expiresInSeconds / authorization.intervalSeconds))
+  let intervalMs = authorization.intervalSeconds * 1000
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    await delay(intervalMs)
+    const response = await fetcher(`${oidcEndpoint(authorization.oidcRegion)}/token`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "user-agent": deviceAuthUserAgent(),
+      },
+      body: JSON.stringify({
+        clientId: authorization.clientId,
+        clientSecret: authorization.clientSecret,
+        deviceCode: authorization.deviceCode,
+        grantType: "urn:ietf:params:oauth:grant-type:device_code",
+      }),
+    })
+    const data = await response.text().then((text) => jsonObject(text) ?? {})
+    const error = stringField(data, "error")
+    if (error === "authorization_pending") continue
+    if (error === "slow_down") {
+      intervalMs += 5000
+      continue
+    }
+    if (error) {
+      const description = stringField(data, "error_description") ?? ""
+      throw new Error(`Kiro device authorization failed: ${error}${description ? ` - ${description}` : ""}`)
+    }
+    if (!response.ok) {
+      throw new Error(`Kiro device token request failed: HTTP ${response.status}`)
+    }
+
+    const accessToken = stringField(data, "access_token", "accessToken")
+    const refreshToken = stringField(data, "refresh_token", "refreshToken")
+    if (!accessToken || !refreshToken) throw new Error("Kiro device token response did not return access and refresh tokens.")
+    const expiresIn = numberField(data, "expires_in", "expiresIn") ?? 3600
+    return {
+      accessToken,
+      refreshToken,
+      expiresAt: Date.now() + expiresIn * 1000,
+      clientId: authorization.clientId,
+      clientSecret: authorization.clientSecret,
+      oidcRegion: authorization.oidcRegion,
+      region: options.profileArn ? (regionFromProfileArn(options.profileArn) ?? options.region) : options.region,
+      startUrl: authorization.startUrl,
+      ...(options.profileArn ? { profileArn: options.profileArn } : {}),
+    }
+  }
+
+  throw new Error("Kiro device authorization timed out.")
+}
+
+export async function refreshKiroDeviceAuthCredential(
+  credential: KiroDeviceAuthCredential,
+  fetcher: KiroAuthFetch = fetch,
+): Promise<KiroDeviceAuthCredential> {
+  const data = await jsonResponse(
+    await fetcher(`${oidcEndpoint(credential.oidcRegion)}/token`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "user-agent": deviceAuthUserAgent(),
+      },
+      body: JSON.stringify({
+        refreshToken: credential.refreshToken,
+        clientId: credential.clientId,
+        clientSecret: credential.clientSecret,
+        grantType: "refresh_token",
+      }),
+    }),
+  )
+  const accessToken = stringField(data, "access_token", "accessToken")
+  if (!accessToken) throw new Error("Kiro refresh token response did not return an access token.")
+  const refreshToken = stringField(data, "refresh_token", "refreshToken") ?? credential.refreshToken
+  const expiresIn = numberField(data, "expires_in", "expiresIn") ?? 3600
+  return {
+    ...credential,
+    accessToken,
+    refreshToken,
+    expiresAt: Date.now() + expiresIn * 1000,
+  }
+}
+
+function base64UrlEncode(value: string): string {
+  return Buffer.from(value, "utf8").toString("base64url")
+}
+
+function base64UrlDecode(value: string): string {
+  return Buffer.from(value, "base64url").toString("utf8")
+}
+
+export function encodeKiroDeviceAuthKey(credential: KiroDeviceAuthCredential): string {
+  return `${KIRO_DEVICE_AUTH_KEY_PREFIX}${base64UrlEncode(JSON.stringify(credential))}`
+}
+
+export function decodeKiroDeviceAuthKey(key: string | undefined): KiroDeviceAuthCredential | undefined {
+  try {
+    if (!key?.startsWith(KIRO_DEVICE_AUTH_KEY_PREFIX)) return undefined
+    const parsed = jsonObject(base64UrlDecode(key.slice(KIRO_DEVICE_AUTH_KEY_PREFIX.length)))
+    const accessToken = stringField(parsed, "accessToken")
+    const refreshToken = stringField(parsed, "refreshToken")
+    const expiresAt = numberField(parsed, "expiresAt")
+    const clientId = stringField(parsed, "clientId")
+    const clientSecret = stringField(parsed, "clientSecret")
+    const oidcRegion = stringField(parsed, "oidcRegion")
+    const region = stringField(parsed, "region")
+    const startUrl = stringField(parsed, "startUrl")
+    if (!accessToken || !refreshToken || !expiresAt || !clientId || !clientSecret || !oidcRegion || !region || !startUrl) return undefined
+    const profileArn = stringField(parsed, "profileArn")
+    return {
+      accessToken,
+      refreshToken,
+      expiresAt,
+      clientId,
+      clientSecret,
+      oidcRegion,
+      region,
+      startUrl,
+      ...(profileArn ? { profileArn } : {}),
+    }
+  } catch {
+    return undefined
+  }
+}
+
+export function isKiroDeviceAuthKey(key: string | undefined): boolean {
+  return Boolean(decodeKiroDeviceAuthKey(key))
+}
+
+export async function credentialFromKiroDeviceAuthKey(
+  key: string,
+  fetcher: KiroAuthFetch = fetch,
+): Promise<KiroCliSessionCredential | undefined> {
+  const cached = refreshedDeviceCredentials.get(key)
+  let credential = cached ?? decodeKiroDeviceAuthKey(key)
+  if (!credential) return undefined
+  if (credential.expiresAt <= Date.now() + TOKEN_REFRESH_BUFFER_MS) {
+    let refresh = deviceRefreshes.get(key)
+    if (!refresh) {
+      refresh = refreshKiroDeviceAuthCredential(credential, fetcher).finally(() => {
+        deviceRefreshes.delete(key)
+      })
+      deviceRefreshes.set(key, refresh)
+    }
+    credential = await refresh
+    refreshedDeviceCredentials.set(key, credential)
+  }
+  return {
+    accessToken: credential.accessToken,
+    refreshToken: credential.refreshToken,
+    expiresAt: new Date(credential.expiresAt).toISOString(),
+    ...(credential.profileArn ? { profileArn: credential.profileArn } : {}),
+    region: regionFromProfileArn(credential.profileArn) ?? credential.region,
+    source: "opencode-device-auth",
+  }
 }
 
 function urls(text: string): string[] {
@@ -430,13 +738,13 @@ export async function detectAuth(
 }
 
 export async function resolveApiKey(
-  auth: () => Promise<{ type: string; key?: string }>,
+  auth: () => Promise<{ type: string; key?: string; access?: string }>,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<string> {
   if (env.KIRO_API_KEY) return env.KIRO_API_KEY
   try {
     const credential = await auth()
-    return credential.type === "api" && credential.key ? credential.key : ""
+    return credential.key || credential.access || ""
   } catch {
     return ""
   }

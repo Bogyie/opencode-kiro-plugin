@@ -2,7 +2,17 @@ import type { Hooks, Plugin } from "@opencode-ai/plugin"
 import { tool } from "@opencode-ai/plugin"
 import { KiroAcpTransport } from "./acp-transport.js"
 import type { KiroAcpTransportOptions } from "./acp-transport.js"
-import { detectAuth, resolveApiKey, runKiroLoginFlowOnce, startKiroCliLoginOnce } from "./auth.js"
+import {
+  authorizeKiroDevice,
+  credentialFromKiroDeviceAuthKey,
+  detectAuth,
+  encodeKiroDeviceAuthKey,
+  isKiroDeviceAuthKey,
+  kiroDeviceVerificationUrl,
+  pollKiroDeviceToken,
+  resolveApiKey,
+  runKiroLoginFlowOnce,
+} from "./auth.js"
 import { KiroCliChatTransport } from "./cli-transport.js"
 import { loadOptions } from "./config.js"
 import type { KiroPluginOptions } from "./config.js"
@@ -78,6 +88,11 @@ function bearerToken(init: RequestInit | undefined): string | undefined {
   return match?.[1] || undefined
 }
 
+function inputString(inputs: Record<string, unknown> | undefined, key: string): string | undefined {
+  const value = inputs?.[key]
+  return typeof value === "string" && value.trim() ? value.trim() : undefined
+}
+
 export function effectiveBackend(options: Pick<KiroPluginOptions, "backend">, accessToken?: string): EffectiveBackend {
   const apiKey = accessToken || process.env.KIRO_API_KEY
   if (options.backend === "acp") return "acp"
@@ -99,6 +114,12 @@ function localTransport(options: KiroPluginOptions, accessToken?: string): KiroT
   }
   if (backend === "fetch") {
     const apiKey = accessToken || process.env.KIRO_API_KEY
+    if (isKiroDeviceAuthKey(apiKey)) {
+      return new KiroRestTransport(fetchTransportOptions(options), {
+        credentialProvider: () => credentialFromKiroDeviceAuthKey(apiKey as string).catch(() => undefined),
+        login: async () => false,
+      })
+    }
     return new KiroRestTransport(fetchTransportOptions(options, apiKey === "kiro-plugin-local-transport" ? undefined : apiKey), {
       login: () => runKiroLoginFlowOnce({ login: options.login }),
     })
@@ -155,7 +176,6 @@ export function createKiroPlugin(): Plugin {
         modelCache,
         options.modelDiscoveryCommand[0] as string,
         options.modelDiscoveryCommand.slice(1),
-        { loginOnAuthFailure: true, login: () => runKiroLoginFlowOnce({ login: options.login }) },
       )
         .catch(() => undefined)
         .then(() => {
@@ -211,25 +231,70 @@ export function createKiroPlugin(): Plugin {
         methods: [
           {
             type: "oauth",
-            label: "Kiro CLI login",
-            authorize: async () => {
-              const session = startKiroCliLoginOnce(options.login)
-              await session.waitForPrompt()
+            label: "Kiro device login",
+            prompts: [
+              {
+                type: "text",
+                key: "startUrl",
+                message: options.login.identityProvider
+                  ? `IAM Identity Center Start URL (current: ${options.login.identityProvider}, leave blank to keep)`
+                  : "IAM Identity Center Start URL (leave blank for AWS Builder ID)",
+                placeholder: "https://your-company.awsapps.com/start",
+              },
+              {
+                type: "text",
+                key: "idcRegion",
+                message:
+                  options.login.region && options.login.region !== "us-east-1"
+                    ? `IAM Identity Center region (current: ${options.login.region}, leave blank to keep)`
+                    : "IAM Identity Center region (leave blank for us-east-1)",
+                placeholder: "us-east-1",
+              },
+              {
+                type: "text",
+                key: "profileArn",
+                message: options.profileArn
+                  ? `Profile ARN (current: ${options.profileArn}, leave blank to keep)`
+                  : "Profile ARN (optional, improves region/profile routing for IAM Identity Center)",
+                placeholder: "arn:aws:codewhisperer:us-east-1:123456789012:profile/XXXXXXXXXX",
+              },
+            ],
+            authorize: async (inputs) => {
+              const promptInputs = inputs as Record<string, unknown> | undefined
+              const startUrl = inputString(promptInputs, "startUrl") ?? options.login.identityProvider
+              const idcRegion = inputString(promptInputs, "idcRegion") ?? options.login.region ?? "us-east-1"
+              const profileArn = inputString(promptInputs, "profileArn") ?? options.profileArn
+              const authorization = await authorizeKiroDevice({
+                region: idcRegion,
+                ...(startUrl ? { identityProvider: startUrl } : {}),
+              })
+              const url = startUrl
+                ? kiroDeviceVerificationUrl(authorization.startUrl, authorization.userCode)
+                : authorization.verificationUrlComplete
               return {
-                url: session.url,
-                instructions: session.instructions,
+                url,
+                instructions: `Open the verification URL and complete Kiro sign-in.\nCode: ${authorization.userCode}`,
                 method: "auto",
                 callback: async () => {
-                  const authenticated = await session.waitForAuth()
-                  if (!authenticated) return { type: "failed" }
-                  const diagnostics = await detectAuth().catch(() => undefined)
+                  const credential = await pollKiroDeviceToken(
+                    authorization,
+                    {
+                      region: options.region,
+                      ...(profileArn ? { profileArn } : {}),
+                    },
+                  )
+                  const key = encodeKiroDeviceAuthKey(credential)
                   return {
                     type: "success",
-                    key: "kiro-plugin-local-transport",
+                    key,
+                    access: key,
+                    refresh: credential.refreshToken,
+                    expires: credential.expiresAt,
                     metadata: {
-                      source: "kiro-cli",
-                      ...(diagnostics?.account ? { account: diagnostics.account } : {}),
-                      ...(diagnostics?.region ? { region: diagnostics.region } : {}),
+                      source: "kiro-device-auth",
+                      region: credential.region,
+                      oidcRegion: credential.oidcRegion,
+                      ...(credential.profileArn ? { profileArn: credential.profileArn } : {}),
                     },
                   }
                 },

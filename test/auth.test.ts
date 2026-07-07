@@ -3,11 +3,17 @@ import { EventEmitter } from "node:events"
 import { PassThrough } from "node:stream"
 import type { ChildProcess } from "node:child_process"
 import {
+  authorizeKiroDevice,
+  credentialFromKiroDeviceAuthKey,
+  decodeKiroDeviceAuthKey,
   detectAuth,
+  encodeKiroDeviceAuthKey,
   extractKiroLoginCode,
   extractKiroLoginUrl,
   kiroCliLoginArgs,
+  kiroDeviceVerificationUrl,
   KIRO_LOGIN_URL,
+  pollKiroDeviceToken,
   readKiroCliSessionCredential,
   redacted,
   resolveApiKey,
@@ -19,6 +25,13 @@ import {
 import { getKiroCliStatus, getKiroCliVersion } from "../src/kiro-cli.js"
 
 const failingRunner: CommandRunner = async () => ({ ok: false, stdout: "", stderr: "not found" })
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  })
+}
 
 describe("auth diagnostics", () => {
   test("redacts secrets without leaking full values", () => {
@@ -76,6 +89,18 @@ describe("auth diagnostics", () => {
     expect(key).toBe("env-key")
   })
 
+  test("resolveApiKey accepts stored OAuth connector keys", async () => {
+    const key = await resolveApiKey(async () => ({ type: "oauth", key: "stored-device-key" }), {})
+
+    expect(key).toBe("stored-device-key")
+  })
+
+  test("resolveApiKey accepts stored OAuth access fields", async () => {
+    const key = await resolveApiKey(async () => ({ type: "oauth", access: "stored-device-key" }), {})
+
+    expect(key).toBe("stored-device-key")
+  })
+
   test("resolveApiKey tolerates missing stored auth", async () => {
     const key = await resolveApiKey(async () => {
       throw new Error("not connected")
@@ -126,6 +151,114 @@ describe("auth diagnostics", () => {
       "--region",
       "ap-northeast-2",
     ])
+  })
+
+  test("builds IAM Identity Center device verification URL", () => {
+    expect(kiroDeviceVerificationUrl("https://example.awsapps.com/start", "ABCD-EFGH")).toBe(
+      "https://example.awsapps.com/start/#/device?user_code=ABCD-EFGH",
+    )
+  })
+
+  test("authorizes and polls Kiro device auth without localhost callback", async () => {
+    const calls: string[] = []
+    const fetcher = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const url = String(input)
+      calls.push(`${init?.method ?? "GET"} ${url}`)
+      if (url.endsWith("/client/register")) {
+        return jsonResponse({ clientId: "client-id", clientSecret: "client-secret" })
+      }
+      if (url.endsWith("/device_authorization")) {
+        expect(JSON.parse(String(init?.body))).toMatchObject({
+          clientId: "client-id",
+          clientSecret: "client-secret",
+          startUrl: "https://example.awsapps.com/start",
+        })
+        return jsonResponse({
+          verificationUri: "https://device.example",
+          verificationUriComplete: "https://device.example/?user_code=ABCD-EFGH",
+          userCode: "ABCD-EFGH",
+          deviceCode: "device-code",
+          interval: 0.001,
+          expiresIn: 1,
+        })
+      }
+      if (url.endsWith("/token")) {
+        expect(JSON.parse(String(init?.body))).toMatchObject({
+          clientId: "client-id",
+          clientSecret: "client-secret",
+          deviceCode: "device-code",
+          grantType: "urn:ietf:params:oauth:grant-type:device_code",
+        })
+        return jsonResponse({ access_token: "access", refresh_token: "refresh", expires_in: 3600 })
+      }
+      throw new Error(`unexpected request ${url}`)
+    }
+
+    const authorization = await authorizeKiroDevice(
+      { identityProvider: "https://example.awsapps.com/start/", region: "ap-northeast-2" },
+      fetcher,
+    )
+    const credential = await pollKiroDeviceToken(authorization, { region: "us-east-1" }, fetcher)
+
+    expect(authorization).toMatchObject({
+      userCode: "ABCD-EFGH",
+      oidcRegion: "ap-northeast-2",
+      startUrl: "https://example.awsapps.com/start",
+    })
+    expect(credential).toMatchObject({
+      accessToken: "access",
+      refreshToken: "refresh",
+      clientId: "client-id",
+      clientSecret: "client-secret",
+      oidcRegion: "ap-northeast-2",
+      region: "us-east-1",
+    })
+    expect(calls).toEqual([
+      "POST https://oidc.ap-northeast-2.amazonaws.com/client/register",
+      "POST https://oidc.ap-northeast-2.amazonaws.com/device_authorization",
+      "POST https://oidc.ap-northeast-2.amazonaws.com/token",
+    ])
+  })
+
+  test("encodes, decodes, and refreshes stored Kiro device auth keys", async () => {
+    const key = encodeKiroDeviceAuthKey({
+      accessToken: "old-access",
+      refreshToken: "refresh",
+      expiresAt: Date.now() - 1000,
+      clientId: "client-id",
+      clientSecret: "client-secret",
+      oidcRegion: "ap-northeast-2",
+      region: "us-east-1",
+      startUrl: "https://example.awsapps.com/start",
+    })
+    const decoded = decodeKiroDeviceAuthKey(key)
+    expect(decoded?.refreshToken).toBe("refresh")
+
+    let refreshes = 0
+    const fetcher = async (input: RequestInfo | URL, init?: RequestInit) => {
+      refreshes += 1
+      expect(String(input)).toBe("https://oidc.ap-northeast-2.amazonaws.com/token")
+      expect(JSON.parse(String(init?.body))).toMatchObject({
+        refreshToken: "refresh",
+        clientId: "client-id",
+        clientSecret: "client-secret",
+        grantType: "refresh_token",
+      })
+      return jsonResponse({ access_token: "new-access", refresh_token: "new-refresh", expires_in: 3600 })
+    }
+    const [credential, sameRefreshCredential] = await Promise.all([
+      credentialFromKiroDeviceAuthKey(key, fetcher),
+      credentialFromKiroDeviceAuthKey(key, fetcher),
+    ])
+
+    expect(credential).toMatchObject({
+      accessToken: "new-access",
+      refreshToken: "new-refresh",
+      region: "us-east-1",
+      source: "opencode-device-auth",
+    })
+    expect(sameRefreshCredential?.accessToken).toBe("new-access")
+    expect(refreshes).toBe(1)
   })
 
   test("starts Kiro CLI login and waits for whoami success", async () => {

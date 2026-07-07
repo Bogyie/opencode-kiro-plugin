@@ -6,12 +6,20 @@ export { acpPermissionResponse, KiroAcpTransport } from "./acp-transport.js"
 export type { AcpSessionClient, KiroAcpTransportOptions } from "./acp-transport.js"
 export { createKiroPlugin, effectiveBackend, KiroPlugin } from "./plugin.js"
 export {
+  authorizeKiroDevice,
+  credentialFromKiroDeviceAuthKey,
+  decodeKiroDeviceAuthKey,
   detectAuth,
+  encodeKiroDeviceAuthKey,
   extractKiroLoginUrl,
+  isKiroDeviceAuthKey,
+  kiroDeviceVerificationUrl,
+  pollKiroDeviceToken,
   KIRO_LOGIN_URL,
   readKiroCliSessionCredential,
   redacted,
   regionFromProfileArn,
+  refreshKiroDeviceAuthCredential,
   resolveApiKey,
   runKiroLoginFlowOnce,
   startKiroCliLogin,
