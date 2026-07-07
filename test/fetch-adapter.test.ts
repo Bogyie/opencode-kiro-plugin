@@ -135,17 +135,12 @@ describe("request adapter", () => {
       resolver(),
     )
 
-    expect(converted.history).toContainEqual({
-      role: "assistant",
-      content: "",
-      toolUses: [
-        {
-          toolUseId: "call-1",
-          name: "read_file",
-          input: { path: "a" },
-        },
-      ],
-    })
+    expect(converted.history).toEqual([
+      { role: "user", content: "Use tools" },
+      { role: "tool", content: "ignore" },
+      { role: "tool", content: "old" },
+      { role: "tool", content: "latest" },
+    ])
     expect(converted.toolResults).toEqual([])
   })
 

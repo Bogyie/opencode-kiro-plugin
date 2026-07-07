@@ -56,6 +56,12 @@ function conversationId(request: KiroGenerateRequest): string {
 }
 
 export function toKiroRestPayload(request: KiroGenerateRequest, profileArn?: string): Record<string, unknown> {
+  const toolResults = request.toolResults.map((item) => ({
+    toolUseId: item.toolUseId,
+    content: [{ text: item.content }],
+    status: "success",
+    ...(item.toolName ? { toolName: item.toolName } : {}),
+  }))
   const history = [
     ...(request.system
       ? [
@@ -97,6 +103,20 @@ export function toKiroRestPayload(request: KiroGenerateRequest, profileArn?: str
             },
           },
     ),
+    ...(toolResults.length > 0
+      ? [
+          {
+            userInputMessage: {
+              content: "",
+              modelId: request.modelId,
+              origin: "AI_EDITOR",
+              userInputMessageContext: {
+                toolResults,
+              },
+            },
+          },
+        ]
+      : []),
   ]
 
   const tools = request.tools.map((item) => ({
@@ -106,17 +126,10 @@ export function toKiroRestPayload(request: KiroGenerateRequest, profileArn?: str
       inputSchema: { json: item.inputSchema },
     },
   }))
-  const toolResults = request.toolResults.map((item) => ({
-    toolUseId: item.toolUseId,
-    content: [{ text: item.content }],
-    status: "success",
-    ...(item.toolName ? { toolName: item.toolName } : {}),
-  }))
   const userInputMessageContext =
-    tools.length > 0 || toolResults.length > 0
+    tools.length > 0
       ? {
           ...(tools.length > 0 ? { tools } : {}),
-          ...(toolResults.length > 0 ? { toolResults } : {}),
         }
       : undefined
 

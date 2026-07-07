@@ -88,6 +88,12 @@ export function toGenerateAssistantResponseInput(
 ): GenerateAssistantResponseCommandInput {
   const content = request.prompt
   const modelFields = additionalModelRequestFields(request)
+  const toolResults = request.toolResults.map((item) => ({
+    toolUseId: item.toolUseId,
+    content: [{ text: item.content }],
+    status: "SUCCESS",
+    ...(item.toolName ? { toolName: item.toolName } : {}),
+  }))
   return {
     ...(options.profileArn ? { profileArn: options.profileArn } : {}),
     agentMode: options.agentMode ?? DEFAULT_AGENT_MODE,
@@ -128,6 +134,19 @@ export function toGenerateAssistantResponseInput(
                 },
               },
         ),
+        ...(toolResults.length > 0
+          ? [
+              {
+                userInputMessage: {
+                  content: "",
+                  origin: "AI_EDITOR",
+                  userInputMessageContext: {
+                    toolResults,
+                  },
+                },
+              },
+            ]
+          : []),
       ],
       currentMessage: {
         userInputMessage: {
@@ -152,7 +171,7 @@ export function toGenerateAssistantResponseInput(
               }
             : {}),
           userInputMessageContext:
-            request.tools.length > 0 || request.toolResults.length > 0
+            request.tools.length > 0
               ? {
                   ...(request.tools.length > 0
                     ? {
@@ -162,16 +181,6 @@ export function toGenerateAssistantResponseInput(
                             ...(item.description ? { description: item.description } : {}),
                             inputSchema: { json: item.inputSchema },
                           },
-                        })),
-                      }
-                    : {}),
-                  ...(request.toolResults.length > 0
-                    ? {
-                        toolResults: request.toolResults.map((item) => ({
-                          toolUseId: item.toolUseId,
-                          content: [{ text: item.content }],
-                          status: "SUCCESS",
-                          ...(item.toolName ? { toolName: item.toolName } : {}),
                         })),
                       }
                     : {}),

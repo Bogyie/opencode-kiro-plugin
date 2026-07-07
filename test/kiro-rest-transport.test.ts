@@ -106,6 +106,23 @@ describe("KiroRestTransport", () => {
               toolUses: [{ toolUseId: "call-1", name: "read_file", input: { path: "README.md" } }],
             },
           },
+          {
+            userInputMessage: {
+              content: "",
+              modelId: "claude-sonnet-4.5",
+              origin: "AI_EDITOR",
+              userInputMessageContext: {
+                toolResults: [
+                  {
+                    toolUseId: "call-1",
+                    content: [{ text: "contents" }],
+                    status: "success",
+                    toolName: "read_file",
+                  },
+                ],
+              },
+            },
+          },
         ],
         currentMessage: {
           userInputMessage: {
@@ -121,14 +138,6 @@ describe("KiroRestTransport", () => {
                     description: "Read a file",
                     inputSchema: { json: { type: "object", properties: { path: { type: "string" } } } },
                   },
-                },
-              ],
-              toolResults: [
-                {
-                  toolUseId: "call-1",
-                  content: [{ text: "contents" }],
-                  status: "success",
-                  toolName: "read_file",
                 },
               ],
             },

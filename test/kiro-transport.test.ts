@@ -50,6 +50,22 @@ describe("toGenerateAssistantResponseInput", () => {
         history: [
           { userInputMessage: { content: "Be concise.", origin: "AI_EDITOR" } },
           { assistantResponseMessage: { content: "Previous answer" } },
+          {
+            userInputMessage: {
+              content: "",
+              origin: "AI_EDITOR",
+              userInputMessageContext: {
+                toolResults: [
+                  {
+                    toolUseId: "call-1",
+                    content: [{ text: "file contents" }],
+                    status: "SUCCESS",
+                    toolName: "read_file",
+                  },
+                ],
+              },
+            },
+          },
         ],
         currentMessage: {
           userInputMessage: {
@@ -66,14 +82,6 @@ describe("toGenerateAssistantResponseInput", () => {
                     description: "Read a file",
                     inputSchema: { json: { type: "object", properties: { path: { type: "string" } } } },
                   },
-                },
-              ],
-              toolResults: [
-                {
-                  toolUseId: "call-1",
-                  content: [{ text: "file contents" }],
-                  status: "SUCCESS",
-                  toolName: "read_file",
                 },
               ],
             },
@@ -311,6 +319,22 @@ describe("CodeWhispererKiroTransport", () => {
         history: [
           { userInputMessage: { content: "Be concise.", origin: "AI_EDITOR" } },
           { assistantResponseMessage: { content: "Previous answer" } },
+          {
+            userInputMessage: {
+              content: "",
+              origin: "AI_EDITOR",
+              userInputMessageContext: {
+                toolResults: [
+                  {
+                    toolUseId: "call-1",
+                    content: [{ text: "file contents" }],
+                    status: "SUCCESS",
+                    toolName: "read_file",
+                  },
+                ],
+              },
+            },
+          },
         ],
         currentMessage: {
           userInputMessage: {

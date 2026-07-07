@@ -263,6 +263,16 @@ function trailingToolMessageIndexes(messages: ReadonlyArray<OpenAIChatMessage>):
   return indexes
 }
 
+function previousAssistantIndexForTrailingTools(messages: ReadonlyArray<OpenAIChatMessage>, trailingIndexes: ReadonlySet<number>): number | undefined {
+  if (trailingIndexes.size === 0) return undefined
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]
+    if (!message || message.role === "system" || trailingIndexes.has(index)) continue
+    return message.role === "assistant" ? index : undefined
+  }
+  return undefined
+}
+
 function toolUses(message: OpenAIChatMessage): KiroConversationToolUse[] {
   return (message.tool_calls ?? [])
     .map((toolCall) => {
@@ -326,6 +336,7 @@ export function toKiroGenerateRequest(request: OpenAIChatRequest, resolver: Mode
   const resolved = resolver.resolve(request.model)
   const activeToolResults = toolResults(request.messages)
   const activeTrailingToolIndexes = activeToolResults.length > 0 ? trailingToolMessageIndexes(request.messages) : new Set<number>()
+  const activeToolUseAssistantIndex = previousAssistantIndexForTrailingTools(request.messages, activeTrailingToolIndexes)
   const system = request.messages
     .filter((message) => message.role === "system")
     .map((message) => textFromContent(message.content))
@@ -335,7 +346,7 @@ export function toKiroGenerateRequest(request: OpenAIChatRequest, resolver: Mode
   for (const [index, message] of request.messages.entries()) {
     if (message.role === "system" || activeTrailingToolIndexes.has(index)) continue
     const content = textFromContent(message.content)
-    const assistantToolUses = message.role === "assistant" ? toolUses(message) : []
+    const assistantToolUses = message.role === "assistant" && index === activeToolUseAssistantIndex ? toolUses(message) : []
     if (!content && assistantToolUses.length === 0) continue
     turns.push({
       role: message.role,
