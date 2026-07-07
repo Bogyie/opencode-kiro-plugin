@@ -15,23 +15,26 @@ class FakeAcpClient implements AcpSessionClient {
   readonly requests: Array<{ method: string; params?: unknown }> = []
   readonly handlers = new Set<AcpNotificationHandler>()
   closed = false
+  readonly updates: ReadonlyArray<unknown>
+  readonly notificationMethod: "session/notification" | "session/update"
+
+  constructor(
+    updates: ReadonlyArray<unknown> = [
+      { update: { type: "AgentMessageChunk", content: { type: "text", text: "hello " } } },
+      { update: { type: "AgentMessageChunk", content: "world" } },
+      { update: { type: "TurnEnd" } },
+    ],
+    notificationMethod: "session/notification" | "session/update" = "session/notification",
+  ) {
+    this.updates = updates
+    this.notificationMethod = notificationMethod
+  }
 
   async request(method: string, params?: unknown): Promise<unknown> {
     this.requests.push(params === undefined ? { method } : { method, params })
     if (method === "session/new") return { sessionId: "session-1" }
     if (method === "session/prompt") {
-      this.notify({
-        sessionId: "session-1",
-        update: { type: "AgentMessageChunk", content: { type: "text", text: "hello " } },
-      })
-      this.notify({
-        sessionId: "session-1",
-        update: { type: "AgentMessageChunk", content: "world" },
-      })
-      this.notify({
-        sessionId: "session-1",
-        update: { type: "TurnEnd" },
-      })
+      for (const update of this.updates) this.notify(update)
     }
     return {}
   }
@@ -49,7 +52,7 @@ class FakeAcpClient implements AcpSessionClient {
 
   notify(params: unknown): void {
     for (const handler of this.handlers) {
-      handler({ jsonrpc: "2.0", method: "session/notification", params })
+      handler({ jsonrpc: "2.0", method: this.notificationMethod, params })
     }
   }
 }
@@ -130,5 +133,74 @@ describe("Kiro ACP transport", () => {
     expect(body).toContain('"content":"hello "')
     expect(body).toContain('"content":"world"')
     expect(body).toContain("data: [DONE]")
+  })
+
+  test("streams Kiro ACP ToolCall notifications as OpenAI-compatible tool calls", async () => {
+    const client = new FakeAcpClient([
+      {
+        update: {
+          type: "ToolCall",
+          toolCallId: "call-1",
+          name: "read_file",
+          parameters: { path: "README.md" },
+        },
+      },
+      { update: { type: "TurnEnd" } },
+    ])
+    const fetch = createKiroFetch({
+      resolver: resolver(),
+      transport: new KiroAcpTransport({ client, promptTimeoutMs: 100 }),
+    })
+
+    const response = await fetch("https://q.us-east-1.amazonaws.com/chat/completions", {
+      method: "POST",
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        messages: [{ role: "user", content: "read README" }],
+        stream: true,
+      }),
+    })
+    const body = await response.text()
+
+    expect(body).toContain('"tool_calls"')
+    expect(body).toContain('"id":"call-1"')
+    expect(body).toContain('"name":"read_file"')
+    expect(body).toContain('\\"README.md\\"')
+  })
+
+  test("streams standard ACP session/update tool_call notifications", async () => {
+    const client = new FakeAcpClient(
+      [
+        {
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId: "call-2",
+            title: "Run tests",
+            kind: "execute",
+            rawInput: { command: "npm test" },
+          },
+        },
+        { update: { type: "TurnEnd" } },
+      ],
+      "session/update",
+    )
+    const fetch = createKiroFetch({
+      resolver: resolver(),
+      transport: new KiroAcpTransport({ client, promptTimeoutMs: 100 }),
+    })
+
+    const response = await fetch("https://q.us-east-1.amazonaws.com/chat/completions", {
+      method: "POST",
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        messages: [{ role: "user", content: "test" }],
+        stream: true,
+      }),
+    })
+    const body = await response.text()
+
+    expect(body).toContain('"id":"call-2"')
+    expect(body).toContain('"name":"execute"')
+    expect(body).toContain('\\"npm test\\"')
   })
 })

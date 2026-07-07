@@ -47,13 +47,21 @@ function sessionIdFrom(result: unknown): string {
 }
 
 function notificationUpdate(notification: JsonRpcNotification): Record<string, unknown> | undefined {
-  if (notification.method !== "session/notification") return undefined
+  if (notification.method !== "session/notification" && notification.method !== "session/update") return undefined
   const params = record(notification.params)
   return record(params?.update) ?? record(params?.notification) ?? params
 }
 
 function updateType(update: Record<string, unknown>): string | undefined {
-  return stringValue(update.type) ?? stringValue(update.kind) ?? stringValue(record(update.update)?.type)
+  const nested = record(update.update)
+  return (
+    stringValue(update.type) ??
+    stringValue(update.sessionUpdate) ??
+    stringValue(nested?.type) ??
+    stringValue(nested?.sessionUpdate) ??
+    stringValue(update.kind) ??
+    stringValue(nested?.kind)
+  )
 }
 
 function textFromContent(value: unknown): string {
@@ -77,6 +85,46 @@ function textFromUpdate(update: Record<string, unknown>): string {
 
 function isTurnEnd(update: Record<string, unknown>): boolean {
   return updateType(update) === "TurnEnd"
+}
+
+function normalizeToolName(input: string): string {
+  const name = input.replace(/[^A-Za-z0-9_-]+/g, "_").replace(/^_+|_+$/g, "")
+  return name || "tool"
+}
+
+function jsonArguments(value: unknown): string {
+  if (value === undefined) return "{}"
+  if (typeof value === "string") return value
+  return JSON.stringify(value)
+}
+
+function toolCallFromUpdate(update: Record<string, unknown>, modelId: string): KiroStreamEvent | undefined {
+  const type = updateType(update)
+  if (type !== "ToolCall" && type !== "ToolCallUpdate" && type !== "tool_call" && type !== "tool_call_update") return undefined
+
+  const detail = record(update.update) ?? update
+  const id =
+    stringValue(detail.toolCallId) ??
+    stringValue(detail.tool_call_id) ??
+    stringValue(detail.id) ??
+    stringValue(detail.callId) ??
+    `acp-tool-${crypto.randomUUID()}`
+  const rawName =
+    stringValue(detail.name) ??
+    stringValue(detail.toolName) ??
+    stringValue(detail.tool_name) ??
+    stringValue(detail.kind) ??
+    stringValue(detail.title) ??
+    "tool"
+  const rawArguments = detail.rawInput ?? detail.input ?? detail.parameters ?? detail.params ?? detail.args ?? detail.arguments
+
+  return {
+    type: "tool_call",
+    id,
+    name: normalizeToolName(rawName),
+    arguments: jsonArguments(rawArguments),
+    modelId,
+  }
 }
 
 function acpPromptContent(request: KiroGenerateRequest): Array<Record<string, unknown>> {
@@ -220,6 +268,8 @@ export class KiroAcpTransport implements KiroTransport {
       if (!update) return
       const text = textFromUpdate(update)
       if (text) queue.push({ type: "text", text, modelId: request.modelId })
+      const toolCall = toolCallFromUpdate(update, request.modelId)
+      if (toolCall) queue.push(toolCall)
       if (isTurnEnd(update)) queue.close()
     })
 

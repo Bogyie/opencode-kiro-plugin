@@ -2,7 +2,7 @@
 
 OpenCode server plugin that registers Kiro as an OpenAI-compatible provider and adapts requests to Kiro backends.
 
-Status: early implementation. The CodeWhisperer streaming transport, CLI chat fallback, model resolver, multimodal request mapping, streaming text, and tool-call chunk mapping are implemented with unit tests. The ACP backend implements JSON-RPC stdio framing, initialize/session/model/prompt flow, and streaming text from `AgentMessageChunk`; full ACP tool event parity is still in progress.
+Status: early implementation. The CodeWhisperer streaming transport, CLI chat fallback, model resolver, multimodal request mapping, streaming text, and tool-call chunk mapping are implemented with unit tests. The ACP backend implements JSON-RPC stdio framing, initialize/session/model/prompt flow, streaming text from `AgentMessageChunk`, and basic `ToolCall` streaming; full ACP tool progress/result parity is still in progress.
 
 ## Install
 
