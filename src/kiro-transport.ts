@@ -8,7 +8,7 @@ import {
 import type { Command } from "@smithy/smithy-client"
 import type { KiroTransport } from "./fetch-adapter.js"
 import type { KiroGenerateRequest } from "./request-adapter.js"
-import type { KiroGenerateResponse } from "./response-adapter.js"
+import type { KiroGenerateResponse, KiroStreamChunk } from "./response-adapter.js"
 
 export interface KiroTransportOptions {
   readonly region: string
@@ -120,6 +120,37 @@ export async function collectAssistantText(
   }
 }
 
+export async function* streamAssistantText(
+  stream: AsyncIterable<ChatResponseStream> | undefined,
+): AsyncIterable<KiroStreamChunk> {
+  if (!stream) return
+
+  for await (const event of stream) {
+    if (event.assistantResponseEvent?.content) {
+      yield {
+        text: event.assistantResponseEvent.content,
+        ...(event.assistantResponseEvent.modelId ? { modelId: event.assistantResponseEvent.modelId } : {}),
+      }
+    }
+    if (event.error) {
+      throw new Error(event.error.message ?? "Kiro stream returned an error event")
+    }
+  }
+}
+
+async function collectChunks(chunks: AsyncIterable<KiroStreamChunk>, fallbackModelId: string): Promise<KiroGenerateResponse> {
+  let text = ""
+  let modelId: string | undefined
+  for await (const chunk of chunks) {
+    text += chunk.text
+    modelId = chunk.modelId ?? modelId
+  }
+  return {
+    text,
+    modelId: modelId ?? fallbackModelId,
+  }
+}
+
 export class CodeWhispererKiroTransport implements KiroTransport {
   readonly #options: KiroTransportOptions
   readonly #client: CodeWhispererClientLike
@@ -130,13 +161,13 @@ export class CodeWhispererKiroTransport implements KiroTransport {
   }
 
   async generate(request: KiroGenerateRequest): Promise<KiroGenerateResponse> {
+    return collectChunks(this.stream(request), request.modelId)
+  }
+
+  async *stream(request: KiroGenerateRequest): AsyncIterable<KiroStreamChunk> {
     const input = toGenerateAssistantResponseInput(request, this.#options)
     const output = await this.#client.send(new GenerateAssistantResponseCommand(input))
-    const response = await collectAssistantText(output.generateAssistantResponseResponse)
-    return {
-      ...response,
-      modelId: response.modelId ?? request.modelId,
-    }
+    yield* streamAssistantText(output.generateAssistantResponseResponse)
   }
 
   dispose(): void {

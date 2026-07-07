@@ -3,6 +3,7 @@ import type { ChatResponseStream } from "@aws/codewhisperer-streaming-client"
 import {
   CodeWhispererKiroTransport,
   collectAssistantText,
+  streamAssistantText,
   toGenerateAssistantResponseInput,
   type CodeWhispererClientLike,
 } from "../src/kiro-transport.js"
@@ -68,6 +69,22 @@ describe("collectAssistantText", () => {
   })
 })
 
+describe("streamAssistantText", () => {
+  test("yields assistant chunks as they arrive", async () => {
+    const chunks = []
+    for await (const chunk of streamAssistantText(
+      events([
+        { assistantResponseEvent: { content: "a", modelId: "claude-sonnet-4.6" } },
+        { assistantResponseEvent: { content: "b" } },
+      ]),
+    )) {
+      chunks.push(chunk)
+    }
+
+    expect(chunks).toEqual([{ text: "a", modelId: "claude-sonnet-4.6" }, { text: "b" }])
+  })
+})
+
 describe("CodeWhispererKiroTransport", () => {
   test("sends GenerateAssistantResponseCommand through injected client", async () => {
     const sent: unknown[] = []
@@ -105,5 +122,29 @@ describe("CodeWhispererKiroTransport", () => {
         },
       },
     })
+  })
+
+  test("streams chunks through injected client", async () => {
+    const client: CodeWhispererClientLike = {
+      async send() {
+        return {
+          conversationId: "conversation",
+          generateAssistantResponseResponse: events([
+            { assistantResponseEvent: { content: "a", modelId: "claude-sonnet-4.6" } },
+            { assistantResponseEvent: { content: "b" } },
+          ]),
+          $metadata: {},
+        }
+      },
+    }
+    const transport = new CodeWhispererKiroTransport(
+      { region: "us-east-1", accessToken: "token" },
+      () => client,
+    )
+
+    const chunks = []
+    for await (const chunk of transport.stream(request)) chunks.push(chunk)
+
+    expect(chunks).toEqual([{ text: "a", modelId: "claude-sonnet-4.6" }, { text: "b" }])
   })
 })

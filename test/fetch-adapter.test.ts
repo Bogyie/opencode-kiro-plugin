@@ -81,6 +81,32 @@ describe("createKiroFetch", () => {
     expect(body.choices[0].message.content).toBe("received claude-sonnet-4.6")
   })
 
+  test("returns OpenAI-compatible SSE when stream is requested", async () => {
+    const fetch = createKiroFetch({
+      resolver: resolver(),
+      transport: {
+        async generate() {
+          throw new Error("generate should not be called for streaming")
+        },
+        async *stream() {
+          yield { text: "hel", modelId: "claude-sonnet-4.6" }
+          yield { text: "lo" }
+        },
+      },
+    })
+
+    const response = await fetch("https://q.us-east-1.amazonaws.com/chat/completions", {
+      method: "POST",
+      body: JSON.stringify({ ...request, stream: true }),
+    })
+    const body = await response.text()
+
+    expect(response.headers.get("content-type")).toContain("text/event-stream")
+    expect(body).toContain('"object":"chat.completion.chunk"')
+    expect(body).toContain('"content":"hel"')
+    expect(body).toContain("data: [DONE]")
+  })
+
   test("returns structured error when transport is not configured", async () => {
     const fetch = createKiroFetch({ resolver: resolver() })
 
