@@ -18,6 +18,6 @@ describe("package metadata", () => {
   })
 
   test("includes documentation, examples, and license in published package", () => {
-    expect(packageJson.files).toEqual(["dist", "README.md", "LICENSE", "docs", "examples"])
+    expect(packageJson.files).toEqual(["dist", "README.md", "CHANGELOG.md", "LICENSE", "docs", "examples"])
   })
 })
