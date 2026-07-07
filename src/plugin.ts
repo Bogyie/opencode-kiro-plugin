@@ -46,6 +46,27 @@ function modelRecord(value: unknown): Record<string, Record<string, unknown>> {
   )
 }
 
+function visibleProviderModels(
+  cache: ModelCache,
+  configuredModels: Record<string, Record<string, unknown>>,
+  hiddenModels: Readonly<Record<string, string>>,
+  disabledModels: ReadonlySet<string>,
+): Record<string, ProviderModelConfig> {
+  const discovered = discoveredProviderModels(cache)
+  const modelIDs = new Set([...Object.keys(discovered), ...Object.keys(configuredModels), ...Object.keys(hiddenModels)])
+  return Object.fromEntries(
+    [...modelIDs]
+      .filter((id) => !disabledModels.has(normalizeModelName(id)))
+      .map((id) => [
+        id,
+        {
+          ...(discovered[id] ?? {}),
+          ...(configuredModels[id] ?? {}),
+        },
+      ]),
+  )
+}
+
 function bearerToken(init: RequestInit | undefined): string | undefined {
   const header = new Headers(init?.headers).get("authorization")
   const match = header?.match(/^Bearer\s+(.+)$/i)
@@ -102,6 +123,7 @@ export function createKiroPlugin(): Plugin {
     const modelCache = new ModelCache(options.modelCacheTtlSeconds)
     let localServer: LocalKiroServer | undefined
     let configuredModels: Record<string, Record<string, unknown>> = { ...options.extraModels }
+    let userModelOverrides: Record<string, Record<string, unknown>> | undefined
     const disabledModels = new Set(options.disabledModels.map(normalizeModelName))
     if (Object.keys(options.extraModels).length > 0) {
       modelCache.update(Object.keys(options.extraModels).map((id) => ({ id: normalizeModelName(id) })))
@@ -160,15 +182,16 @@ export function createKiroPlugin(): Plugin {
 
         const provider = config.provider[options.providerID]
         const server = await ensureLocalServer()
+        userModelOverrides ??= modelRecord(provider.models)
         configuredModels = {
           ...options.extraModels,
-          ...modelRecord(provider.models),
+          ...userModelOverrides,
         }
         provider.name ??= "Kiro"
         provider.npm = "@ai-sdk/openai-compatible"
         provider.api = server.baseURL
         provider.options ??= {}
-        provider.models = configuredModels
+        provider.models = visibleProviderModels(modelCache, configuredModels, options.hiddenModels, disabledModels)
       },
       auth: {
         provider: options.providerID,
@@ -234,21 +257,14 @@ export function createKiroPlugin(): Plugin {
         id: options.providerID,
         models: async (provider) => {
           await discoverIfStale()
-          const discovered = discoveredProviderModels(modelCache)
           const existing = modelRecord(provider.models)
-          const allowedModelIDs = new Set([
-            ...Object.keys(discovered),
-            ...Object.keys(configuredModels),
-            ...Object.keys(options.hiddenModels),
-          ])
+          const visibleModels = visibleProviderModels(modelCache, configuredModels, options.hiddenModels, disabledModels)
           const server = await ensureLocalServer()
           return Object.fromEntries(
-            [...allowedModelIDs]
-              .filter((id) => !disabledModels.has(normalizeModelName(id)))
+            Object.keys(visibleModels)
               .map((id) => {
                 const model = {
-                  ...(discovered[id] ?? {}),
-                  ...(configuredModels[id] ?? {}),
+                  ...(visibleModels[id] ?? {}),
                   ...(existing[id] ?? {}),
                 }
                 return [

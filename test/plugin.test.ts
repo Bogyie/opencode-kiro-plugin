@@ -108,6 +108,26 @@ describe("Kiro plugin", () => {
     await hooks.dispose?.()
   })
 
+  test("injects discovered models into provider config so the picker can show Kiro", async () => {
+    const hooks = await createKiroPlugin()(input, {
+      modelDiscoveryCommand: [
+        process.execPath,
+        "-e",
+        "console.log(JSON.stringify({models:[{model_id:'claude-sonnet-5',model_name:'claude-sonnet-5',context_window_tokens:1000000}]}))",
+      ],
+    })
+    const config: any = {}
+
+    await hooks.config?.(config)
+
+    expect(config.provider.kiro.models["claude-sonnet-5"].name).toBe("claude-sonnet-5")
+    expect(config.provider.kiro.models["claude-sonnet-5"].limit).toEqual({
+      context: 1_000_000,
+      output: 64_000,
+    })
+    await hooks.dispose?.()
+  })
+
   test("provider hook adds OpenAI-compatible API metadata only to discovered or configured models", async () => {
     const hooks = await createKiroPlugin()(input, { ...withoutDiscovery, region: "eu-central-1" })
     const config: any = {
