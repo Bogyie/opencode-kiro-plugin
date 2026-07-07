@@ -189,7 +189,7 @@ Record any real Kiro/API limitations in `CHANGELOG.md` before publishing.
 - `kiro-cli whoami` succeeded with an IAM Identity Center session; account identifiers were not recorded here.
 - `kiro-cli chat --no-interactive "Say hello in one short sentence."` returned assistant text.
 - Built `KiroCliChatTransport` returned assistant text with `requestTimeoutMs: 30000`.
-- `opencode models kiro` in a temporary project using `file:/Users/boggy/repo/github.com/bogyie/opencode-kiro-plugin` listed `kiro/auto` and fallback models.
+- `opencode models kiro` in a temporary project using `file:/Users/boggy/repo/github.com/bogyie/opencode-kiro-plugin` should list models returned by runtime discovery, not bundled fallback presets.
 - `opencode run -m kiro/auto --format json "Say hello in one short sentence."` returned a text event and `finish_reason: stop` through the local plugin with `backend: "cli-chat"`.
 - `kiro-cli acp --verbose` returned a valid `initialize` JSON-RPC response but also emitted a non-JSON stdout log line; the stdio client now ignores those log lines.
 - Built `KiroAcpTransport` still failed at session creation with `KIRO_ACP_PROCESS_EXITED` because Kiro CLI 2.6.1 exits with code 0 after the current `session/new` request. Full ACP prompt E2E still needs the current Kiro ACP session schema confirmed before release.

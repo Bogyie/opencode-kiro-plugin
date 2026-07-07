@@ -1,4 +1,4 @@
-import { KiroPluginError } from "./errors.js"
+import { KiroPluginError, normalizeError } from "./errors.js"
 
 export interface KiroGenerateResponse {
   readonly text: string
@@ -77,17 +77,38 @@ function sse(data: unknown): string {
   return `data: ${JSON.stringify(data)}\n\n`
 }
 
+function streamChunk(id: string, created: number, model: string, delta: Record<string, unknown>, finishReason: string | null) {
+  return {
+    id,
+    object: "chat.completion.chunk",
+    created,
+    model,
+    choices: [
+      {
+        index: 0,
+        delta,
+        finish_reason: finishReason,
+      },
+    ],
+  }
+}
+
 export function toOpenAIChatStreamResponse(chunks: AsyncIterable<KiroStreamEvent>, model: string): Response {
   const encoder = new TextEncoder()
   const body = new ReadableStream<Uint8Array>({
     async start(controller) {
+      const id = `kiro-${crypto.randomUUID()}`
+      const created = Math.floor(Date.now() / 1000)
+      let responseModel = model
       try {
         const toolCallIndexes = new Map<string, number>()
         let nextToolCallIndex = 0
         let sawToolCall = false
         let sawDelta = false
+        controller.enqueue(encoder.encode(sse(streamChunk(id, created, responseModel, { role: "assistant" }, null))))
         for await (const chunk of chunks) {
           let delta: Record<string, unknown>
+          responseModel = chunk.modelId ?? responseModel
           if (chunk.type === "tool_call") {
             sawToolCall = true
             let index = toolCallIndexes.get(chunk.id)
@@ -117,34 +138,29 @@ export function toOpenAIChatStreamResponse(chunks: AsyncIterable<KiroStreamEvent
             delta = { content: chunk.text }
           }
           sawDelta = true
-          controller.enqueue(
-            encoder.encode(
-              sse({
-                id: `kiro-${crypto.randomUUID()}`,
-                object: "chat.completion.chunk",
-                created: Math.floor(Date.now() / 1000),
-                model: chunk.modelId ?? model,
-                choices: [
-                  {
-                    index: 0,
-                    delta,
-                    finish_reason: null,
-                  },
-                ],
-              }),
-            ),
-          )
+          controller.enqueue(encoder.encode(sse(streamChunk(id, created, responseModel, delta, null))))
         }
         if (!sawDelta) {
           throw new KiroPluginError("Kiro backend returned an empty response stream.", "KIRO_EMPTY_RESPONSE", 502)
         }
-        controller.enqueue(
-          encoder.encode(sse({ choices: [{ index: 0, delta: {}, finish_reason: sawToolCall ? "tool_calls" : "stop" }] })),
-        )
+        controller.enqueue(encoder.encode(sse(streamChunk(id, created, responseModel, {}, sawToolCall ? "tool_calls" : "stop"))))
         controller.enqueue(encoder.encode("data: [DONE]\n\n"))
         controller.close()
       } catch (error) {
-        controller.error(error)
+        const known = normalizeError(error)
+        controller.enqueue(
+          encoder.encode(
+            sse({
+              error: {
+                message: known.message,
+                type: known.code,
+                code: known.code,
+              },
+            }),
+          ),
+        )
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"))
+        controller.close()
       }
     },
   })

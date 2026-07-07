@@ -7,12 +7,13 @@ import { KiroCliChatTransport } from "./cli-transport.js"
 import { loadOptions } from "./config.js"
 import type { KiroPluginOptions } from "./config.js"
 import { createKiroFetch } from "./fetch-adapter.js"
+import { startLocalKiroServer, type LocalKiroServer } from "./local-server.js"
 import { ModelCache } from "./model-cache.js"
 import { refreshModelCacheFromCommand } from "./model-discovery.js"
 import { ModelResolver, normalizeModelName } from "./model-resolver.js"
 import { CodeWhispererKiroTransport } from "./kiro-transport.js"
 import type { KiroTransportOptions } from "./kiro-transport.js"
-import { FALLBACK_MODELS, type ProviderModelConfig } from "./models.js"
+import type { ProviderModelConfig } from "./models.js"
 
 type MutableConfig = Record<string, any>
 
@@ -21,7 +22,6 @@ function mergeModels(
   existing: Record<string, unknown> | undefined,
 ): Record<string, unknown> {
   return {
-    ...FALLBACK_MODELS,
     ...extraModels,
     ...(existing ?? {}),
   }
@@ -74,7 +74,10 @@ export function createKiroPlugin(): Plugin {
     const options = loadOptions(rawOptions)
     const baseURL = options.endpoint ?? `https://q.${options.region}.amazonaws.com`
     const modelCache = new ModelCache(options.modelCacheTtlSeconds)
-    modelCache.update([...Object.keys(FALLBACK_MODELS), ...Object.keys(options.extraModels)].map((id) => ({ id: normalizeModelName(id) })))
+    let localServer: LocalKiroServer | undefined
+    if (Object.keys(options.extraModels).length > 0) {
+      modelCache.update(Object.keys(options.extraModels).map((id) => ({ id: normalizeModelName(id) })))
+    }
     let discovery: Promise<void> | undefined
     let discoveryAttempted = false
     const discoverIfStale = async () => {
@@ -106,6 +109,10 @@ export function createKiroPlugin(): Plugin {
     })
 
     return {
+      dispose: async () => {
+        await localServer?.close()
+        localServer = undefined
+      },
       config: async (config: MutableConfig) => {
         config.provider ??= {}
         config.provider[options.providerID] ??= {}
@@ -157,21 +164,23 @@ export function createKiroPlugin(): Plugin {
                       ...(options.requestTimeoutMs ? { requestTimeoutMs: options.requestTimeoutMs } : {}),
                     })
                   : undefined
+          const localFetch = createKiroFetch({
+            resolver,
+            ...(transport ? { transport } : {}),
+          })
+          localServer ??= await startLocalKiroServer(localFetch)
           return {
-            apiKey,
-            baseURL,
-            fetch: createKiroFetch({
-              resolver,
-              ...(transport ? { transport } : {}),
-            }),
+            apiKey: apiKey || "kiro-plugin-local-transport",
+            baseURL: localServer.baseURL,
           }
         },
       },
       tool: {
         kiro_status: tool({
-          description: "Show Kiro plugin backend, auth, region, and model fallback status.",
+          description: "Show Kiro plugin backend, auth, region, and discovered model status.",
           args: {},
           execute: async () => {
+            await discoverIfStale()
             const auth = await detectAuth()
             return {
               title: "Kiro status",
@@ -181,7 +190,7 @@ export function createKiroPlugin(): Plugin {
                 `region: ${auth.region}`,
                 `auth: ${auth.method}`,
                 `authenticated: ${auth.authenticated ? "yes" : "no"}`,
-                `models: ${Object.keys(FALLBACK_MODELS).length} fallback presets`,
+                `models: ${modelCache.ids().length} discovered/cache entries`,
                 auth.message,
               ].join("\n"),
               metadata: {

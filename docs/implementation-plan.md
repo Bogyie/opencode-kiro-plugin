@@ -46,7 +46,7 @@
 - `config` hook에서 `provider.kiro` 생성
 - `npm: "@ai-sdk/openai-compatible"` 설정
 - provider-level `api` 또는 `options.baseURL` 설정
-- fallback model metadata 주입
+- runtime discovery model metadata 주입
 - 사용자가 이미 정의한 provider/model 설정은 덮어쓰지 않고 merge
 - `enabled_providers`/`disabled_providers`와 충돌하지 않게 처리
 
@@ -54,7 +54,7 @@
 
 - 빈 config에 Kiro provider가 생깁니다.
 - 사용자 override가 유지됩니다.
-- model limit, modality, variant metadata가 기본값으로 들어갑니다.
+- discovery 또는 사용자 override에서 온 model limit, modality, variant metadata가 들어갑니다.
 
 ## Milestone 2: Model Resolver
 
@@ -72,9 +72,9 @@
   - TTL cache
   - stale detection
   - refresh coordination
-  - fallback preset loading
+  - explicit extra model loading
 - `src/models.ts`
-  - fallback preset only
+  - optional metadata helpers only
   - runtime validation에는 사용하지 않음
 - config knobs
   - `modelCacheTtlSeconds`
@@ -274,7 +274,7 @@ test/
 
 - Model churn
   - pass-through를 기본값으로 둡니다.
-  - fallback preset은 cache bootstrap과 UI 표시용으로만 씁니다.
+  - model picker는 runtime discovery 결과를 기준으로 하고, static preset을 사용 가능 모델처럼 표시하지 않습니다.
 
 - Credential safety
   - token 값을 로그에 남기지 않습니다.

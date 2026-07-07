@@ -39,7 +39,7 @@ The plugin resolves credentials in this order:
 
 Direct fetch mode requires an API key/token usable by the Kiro/CodeWhisperer client. `cli-chat` mode uses the official `kiro-cli chat --no-interactive` surface and depends on the local Kiro CLI login state.
 
-Use the `kiro_status` plugin tool to inspect provider id, backend, region, auth method, and fallback model preset count. Secrets are redacted in diagnostics.
+Use the `kiro_status` plugin tool to inspect provider id, backend, region, auth method, and discovered model count. Secrets are redacted in diagnostics.
 
 ## Backend Modes
 
@@ -74,7 +74,7 @@ Supported values:
 
 ## Model Churn Handling
 
-The resolver intentionally avoids a hard whitelist. By default, the plugin reads the current Kiro CLI model list with `kiro-cli chat --list-models --format json`. Bundled presets are only used as UI metadata and as a fallback when discovery is unavailable.
+The resolver intentionally avoids a hard whitelist. By default, the plugin reads the current Kiro CLI model list with `kiro-cli chat --list-models --format json`. Runtime discovery is the source of truth for the model picker; bundled metadata is not injected as available models by default.
 
 Useful options:
 
@@ -116,11 +116,11 @@ Resolution order:
 2. Name normalization, for example `claude-sonnet-4-6` to `claude-sonnet-4.6`
 3. Disabled model check
 4. Dynamic cache hit
-5. Extra model preset cache hit
+5. Explicit `extraModels` cache hit
 6. Hidden/manual model mapping
 7. Optimistic pass-through unless disabled
 
-This keeps new Kiro model ids visible before the package is updated. Use `extraModels` only when a new model should appear in OpenCode's model picker but is not yet listed by your installed Kiro CLI. Set `disableModelPassThrough: true` only when you need strict model governance.
+This keeps new Kiro model ids usable before the package is updated without advertising unavailable models in OpenCode's picker. Use `extraModels` only when you explicitly want a model to appear even though it is not listed by your installed Kiro CLI. Set `disableModelPassThrough: true` only when you need strict model governance.
 
 The plugin injects `provider.kiro` automatically. You only need to add `provider.kiro.models` yourself when overriding OpenCode model-picker metadata, such as a display name or context limit. Use plugin `modelAliases` for aliases that should resolve one requested model id to another.
 
@@ -148,6 +148,12 @@ For local checks:
 npm test
 npm run typecheck
 npm run build
+```
+
+For a real Kiro smoke test that uses your local `kiro-cli` login, runs runtime model discovery, verifies the plugin does not advertise models absent from the real CLI list, and checks both non-streaming and streaming assistant responses:
+
+```sh
+npm run smoke:kiro
 ```
 
 For real Kiro/OpenCode validation, use [docs/e2e-validation.md](docs/e2e-validation.md).

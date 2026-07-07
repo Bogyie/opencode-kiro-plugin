@@ -77,10 +77,10 @@ describe("Kiro plugin", () => {
     expect(config.provider.kiro.npm).toBe("@ai-sdk/openai-compatible")
     expect(config.provider.kiro.api).toBe("https://custom.example")
     expect(config.provider.kiro.models.auto.name).toBe("Custom Auto")
-    expect(config.provider.kiro.models["claude-sonnet-4.6"].limit.context).toBe(1_000_000)
+    expect(config.provider.kiro.models["claude-sonnet-4.6"]).toBeUndefined()
   })
 
-  test("injects extra model presets and lets user config override them", async () => {
+  test("injects only explicit extra model presets and lets user config override them", async () => {
     const hooks = await createKiroPlugin()(input, {
       ...withoutDiscovery,
       extraModels: {
@@ -103,7 +103,7 @@ describe("Kiro plugin", () => {
     await hooks.config?.(config)
 
     expect(config.provider.kiro.models["claude-opus-4-9"].name).toBe("User Opus")
-    expect(config.provider.kiro.models["claude-sonnet-4.6"].name).toBe("Claude Sonnet 4.6")
+    expect(config.provider.kiro.models["claude-sonnet-4.6"]).toBeUndefined()
   })
 
   test("provider hook adds OpenAI-compatible API metadata to models", async () => {
@@ -124,6 +124,7 @@ describe("Kiro plugin", () => {
       npm: "@ai-sdk/openai-compatible",
       url: "https://q.eu-central-1.amazonaws.com",
     })
+    expect(models?.["claude-fable-5"]).toBeUndefined()
   })
 
   test("provider hook uses custom endpoint for provider API metadata", async () => {
@@ -177,6 +178,7 @@ describe("Kiro plugin", () => {
       npm: "@ai-sdk/openai-compatible",
       url: "https://q.us-east-1.amazonaws.com",
     })
+    expect(models?.["claude-fable-5"]).toBeUndefined()
   })
 
   test("auth loader uses KIRO_API_KEY without requiring stored OpenCode auth", async () => {
@@ -192,8 +194,29 @@ describe("Kiro plugin", () => {
       )
 
       expect(loaded?.apiKey).toBe("env-key")
-      expect(loaded?.baseURL).toBe("https://q.us-east-1.amazonaws.com")
-      expect(loaded?.fetch).toBeFunction()
+      expect(loaded?.baseURL?.startsWith("http://127.0.0.1:")).toBe(true)
+      await hooks.dispose?.()
+    } finally {
+      if (original === undefined) delete process.env.KIRO_API_KEY
+      else process.env.KIRO_API_KEY = original
+    }
+  })
+
+  test("auth loader returns a non-empty key when using local transports", async () => {
+    const original = process.env.KIRO_API_KEY
+    delete process.env.KIRO_API_KEY
+    try {
+      const hooks = await createKiroPlugin()(input, { ...withoutDiscovery, backend: "cli-chat" })
+      const loaded = await hooks.auth?.loader?.(
+        async () => {
+          throw new Error("not connected")
+        },
+        {} as any,
+      )
+
+      expect(loaded?.apiKey).toBe("kiro-plugin-local-transport")
+      expect(loaded?.baseURL?.startsWith("http://127.0.0.1:")).toBe(true)
+      await hooks.dispose?.()
     } finally {
       if (original === undefined) delete process.env.KIRO_API_KEY
       else process.env.KIRO_API_KEY = original
@@ -216,7 +239,8 @@ describe("Kiro plugin", () => {
       {} as any,
     )
 
-    expect(loaded?.fetch).toBeFunction()
+    expect(loaded?.baseURL?.startsWith("http://127.0.0.1:")).toBe(true)
+    await hooks.dispose?.()
   })
 
   test("auth loader wires ACP backend without requiring API key", async () => {
@@ -231,7 +255,8 @@ describe("Kiro plugin", () => {
         {} as any,
       )
 
-      expect(loaded?.fetch).toBeFunction()
+      expect(loaded?.baseURL?.startsWith("http://127.0.0.1:")).toBe(true)
+      await hooks.dispose?.()
     } finally {
       if (original === undefined) delete process.env.KIRO_API_KEY
       else process.env.KIRO_API_KEY = original

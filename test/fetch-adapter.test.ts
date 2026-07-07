@@ -11,6 +11,18 @@ function resolver(): ModelResolver {
   return new ModelResolver({ cache })
 }
 
+function assistantTextFromSse(body: string): string {
+  return body
+    .split(/\n\n/)
+    .map((event) => event.trim())
+    .filter((event) => event.startsWith("data: "))
+    .map((event) => event.slice("data: ".length))
+    .filter((data) => data !== "[DONE]")
+    .map((data) => JSON.parse(data) as { choices?: Array<{ delta?: { content?: string } }> })
+    .map((item) => item.choices?.[0]?.delta?.content ?? "")
+    .join("")
+}
+
 const request: OpenAIChatRequest = {
   model: "claude-sonnet-4-6",
   messages: [
@@ -290,9 +302,33 @@ describe("createKiroFetch", () => {
 
     expect(response.headers.get("content-type")).toContain("text/event-stream")
     expect(body).toContain('"object":"chat.completion.chunk"')
+    expect(body).toContain('"role":"assistant"')
     expect(body).toContain('"content":"hel"')
     expect(body).toContain('"finish_reason":"stop"')
     expect(body).toContain("data: [DONE]")
+  })
+
+  test("streaming SSE reconstructs the final assistant response text", async () => {
+    const fetch = createKiroFetch({
+      resolver: resolver(),
+      transport: {
+        async generate() {
+          throw new Error("generate should not be called for streaming")
+        },
+        async *stream() {
+          yield { type: "text" as const, text: "The answer " }
+          yield { type: "text" as const, text: "is 4." }
+        },
+      },
+    })
+
+    const response = await fetch("https://q.us-east-1.amazonaws.com/chat/completions", {
+      method: "POST",
+      body: JSON.stringify({ ...request, stream: true }),
+    })
+    const body = await response.text()
+
+    expect(assistantTextFromSse(body)).toBe("The answer is 4.")
   })
 
   test("does not emit content chunks for usage-only stream events", async () => {
@@ -320,7 +356,7 @@ describe("createKiroFetch", () => {
     expect(body).toContain('"finish_reason":"stop"')
   })
 
-  test("rejects empty streaming transport responses", async () => {
+  test("returns structured SSE error for empty streaming transport responses", async () => {
     const fetch = createKiroFetch({
       resolver: resolver(),
       transport: {
@@ -335,8 +371,10 @@ describe("createKiroFetch", () => {
       method: "POST",
       body: JSON.stringify({ ...request, stream: true }),
     })
+    const body = await response.text()
 
-    await expect(response.text()).rejects.toThrow("Kiro backend returned an empty response stream.")
+    expect(body).toContain('"code":"KIRO_EMPTY_RESPONSE"')
+    expect(body).toContain("data: [DONE]")
   })
 
   test("streams reasoning deltas separately from content deltas", async () => {
