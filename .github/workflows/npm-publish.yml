@@ -1,31 +1,100 @@
 name: Publish npm package
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - package.json
+      - package-lock.json
   release:
     types: [published]
 
 permissions:
   contents: read
-  id-token: write
-
-concurrency:
-  group: npm-publish-${{ github.event.release.tag_name }}
-  cancel-in-progress: false
 
 jobs:
-  publish:
-    name: Publish to npm
+  prepare:
+    name: Determine package release
     runs-on: ubuntu-latest
+    outputs:
+      should_publish: ${{ steps.release.outputs.should_publish }}
+      version: ${{ steps.release.outputs.version }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      create_release: ${{ steps.release.outputs.create_release }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine release version
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VERSION="$(node -p "require('./package.json').version")"
+          TAG_NAME="v${VERSION}"
+          SHOULD_PUBLISH="false"
+          CREATE_RELEASE="false"
+
+          if [ "${{ github.event_name }}" = "release" ]; then
+            TAG_NAME="${{ github.event.release.tag_name }}"
+            RELEASE_VERSION="${TAG_NAME#v}"
+            if [ "$RELEASE_VERSION" != "$VERSION" ]; then
+              echo "Release tag $TAG_NAME does not match package version $VERSION" >&2
+              exit 1
+            fi
+            SHOULD_PUBLISH="true"
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            BEFORE="${{ github.event.before }}"
+            PREVIOUS_VERSION=""
+
+            if git cat-file -e "${BEFORE}:package.json" 2>/dev/null; then
+              PREVIOUS_VERSION="$(
+                git show "${BEFORE}:package.json" \
+                  | node -e "let input = ''; process.stdin.on('data', chunk => input += chunk); process.stdin.on('end', () => console.log(JSON.parse(input).version));"
+              )"
+            fi
+
+            if [ "$PREVIOUS_VERSION" != "$VERSION" ]; then
+              if git rev-parse -q --verify "refs/tags/${TAG_NAME}" >/dev/null; then
+                echo "Tag ${TAG_NAME} already exists." >&2
+                exit 1
+              fi
+              SHOULD_PUBLISH="true"
+              CREATE_RELEASE="true"
+            fi
+          fi
+
+          echo "should_publish=${SHOULD_PUBLISH}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag_name=${TAG_NAME}" >> "$GITHUB_OUTPUT"
+          echo "create_release=${CREATE_RELEASE}" >> "$GITHUB_OUTPUT"
+
+  publish:
+    name: Publish to npm
+    needs: prepare
+    if: needs.prepare.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: write
+      id-token: write
+    concurrency:
+      group: npm-publish-${{ needs.prepare.outputs.tag_name }}
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22.x
+          node-version: 24.x
           registry-url: https://registry.npmjs.org/
-          cache: npm
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -35,12 +104,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Verify release tag matches package version
+      - name: Verify package version
         run: |
           PACKAGE_VERSION="$(node -p "require('./package.json').version")"
-          RELEASE_TAG="${GITHUB_REF_NAME#v}"
-          if [ "$PACKAGE_VERSION" != "$RELEASE_TAG" ]; then
-            echo "Release tag $GITHUB_REF_NAME does not match package version $PACKAGE_VERSION" >&2
+          if [ "$PACKAGE_VERSION" != "${{ needs.prepare.outputs.version }}" ]; then
+            echo "Prepared version ${{ needs.prepare.outputs.version }} does not match package version $PACKAGE_VERSION" >&2
             exit 1
           fi
 
@@ -56,7 +124,11 @@ jobs:
       - name: Check publish contents
         run: npm pack --dry-run
 
-      - name: Publish package
-        run: npm publish --provenance --access public
+      - name: Create GitHub Release
+        if: needs.prepare.outputs.create_release == 'true'
+        run: gh release create "${{ needs.prepare.outputs.tag_name }}" --target "$GITHUB_SHA" --title "${{ needs.prepare.outputs.tag_name }}" --notes "Release ${{ needs.prepare.outputs.tag_name }}"
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Publish package
+        run: npm publish --access public

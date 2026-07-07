@@ -170,13 +170,20 @@ For real Kiro/OpenCode validation, use [docs/e2e-validation.md](docs/e2e-validat
 
 ## Release
 
-GitHub Release publishing drives npm publishing. To publish a new npm package:
+The npm package is published through npm Trusted Publishing with the GitHub Actions environment named `npm`. No `NPM_TOKEN` repository secret is required.
 
-1. Set the repository secret `NPM_TOKEN` to an npm automation token with publish access to `@bogyie/opencode-kiro-plugin`.
-2. Update `package.json` and `package-lock.json` to the release version.
-3. Create and publish a GitHub Release whose tag matches the package version, for example `v0.1.0`.
+Configure the npm package trusted publisher to use:
 
-The `Publish npm package` workflow runs tests, typecheck, package smoke validation, `npm pack --dry-run`, and then `npm publish --provenance --access public`.
+- repository owner: `bogyie`
+- repository name: `opencode-kiro-plugin`
+- workflow filename: `npm-publish.yml`
+- environment name: `npm`
+
+To publish a new version from `main`, update `package.json` and `package-lock.json` to the release version and merge the change. When the `package.json` version changes on `main`, the `Publish npm package` workflow creates the matching GitHub Release tag, for example `v0.1.0`, and publishes that package version to npm.
+
+Publishing an existing GitHub Release is also supported when the release tag matches the package version.
+
+The workflow runs tests, typecheck, package smoke validation, `npm pack --dry-run`, and then `npm publish --access public`.
 
 ## License And References
 
