@@ -36,11 +36,16 @@ export type JsonRpcResponse = JsonRpcSuccess | JsonRpcFailure
 export type JsonRpcMessage = JsonRpcRequest | JsonRpcNotification | JsonRpcResponse
 
 export interface AcpConnection {
-  send(message: JsonRpcRequest): void | Promise<void>
+  send(message: JsonRpcMessage): void | Promise<void>
   close?(): void
 }
 
 export type AcpNotificationHandler = (message: JsonRpcNotification) => void
+export type AcpRequestHandler = (message: JsonRpcRequest) => unknown | Promise<unknown>
+
+export interface AcpJsonRpcClientOptions {
+  readonly onRequest?: AcpRequestHandler
+}
 
 interface PendingRequest {
   readonly resolve: (value: unknown) => void
@@ -67,6 +72,10 @@ function isNotification(message: JsonRpcMessage): message is JsonRpcNotification
   return "method" in message && !("id" in message)
 }
 
+function isRequest(message: JsonRpcMessage): message is JsonRpcRequest {
+  return "method" in message && "id" in message
+}
+
 function hasError(message: JsonRpcResponse): message is JsonRpcFailure {
   return "error" in message
 }
@@ -74,11 +83,13 @@ function hasError(message: JsonRpcResponse): message is JsonRpcFailure {
 export class AcpJsonRpcClient {
   #nextId = 1
   readonly #connection: AcpConnection
+  readonly #onRequest: AcpRequestHandler | undefined
   readonly #pending = new Map<JsonRpcId, PendingRequest>()
   readonly #notifications = new Set<AcpNotificationHandler>()
 
-  constructor(connection: AcpConnection) {
+  constructor(connection: AcpConnection, options: AcpJsonRpcClientOptions = {}) {
     this.#connection = connection
+    this.#onRequest = options.onRequest
   }
 
   async request(method: string, params?: unknown): Promise<unknown> {
@@ -106,6 +117,11 @@ export class AcpJsonRpcClient {
       return
     }
 
+    if (isRequest(message)) {
+      void this.#handleRequest(message)
+      return
+    }
+
     if (!hasId(message)) return
 
     const pending = this.#pending.get(message.id)
@@ -118,6 +134,34 @@ export class AcpJsonRpcClient {
     }
 
     pending.resolve(message.result)
+  }
+
+  async #handleRequest(message: JsonRpcRequest): Promise<void> {
+    try {
+      if (!this.#onRequest) {
+        await this.#connection.send({
+          jsonrpc: "2.0",
+          id: message.id,
+          error: { code: -32601, message: `Method not found: ${message.method}` },
+        })
+        return
+      }
+      const result = await this.#onRequest(message)
+      await this.#connection.send({
+        jsonrpc: "2.0",
+        id: message.id,
+        result: result ?? null,
+      })
+    } catch (error) {
+      await this.#connection.send({
+        jsonrpc: "2.0",
+        id: message.id,
+        error: {
+          code: -32603,
+          message: error instanceof Error ? error.message : "ACP request handler failed",
+        },
+      })
+    }
   }
 
   rejectAll(error: unknown): void {
@@ -144,6 +188,7 @@ export interface AcpStdioClientOptions {
   readonly args?: ReadonlyArray<string>
   readonly cwd?: string
   readonly env?: NodeJS.ProcessEnv
+  readonly requestHandler?: AcpRequestHandler
 }
 
 export function createAcpStdioClient(options: AcpStdioClientOptions = {}): AcpJsonRpcClient {
@@ -164,7 +209,7 @@ export function createAcpStdioClient(options: AcpStdioClientOptions = {}): AcpJs
       child.kill()
     },
   }
-  client = new AcpJsonRpcClient(connection)
+  client = new AcpJsonRpcClient(connection, options.requestHandler ? { onRequest: options.requestHandler } : {})
 
   let stdout = ""
   child.stdout?.on("data", (chunk: Buffer) => {

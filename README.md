@@ -71,6 +71,8 @@ Supported values:
 - `cli-chat`: call `kiro-cli chat --no-interactive`. This is official and stable, but Kiro CLI does not currently expose a guaranteed per-request model flag.
 - `acp`: launch `kiro-cli acp`, initialize a session, optionally set the requested model, send the prompt, and collect `AgentMessageChunk` notifications until `TurnEnd`.
 
+`trustAllTools` affects both `cli-chat` and ACP permission handling. In ACP mode, permission requests are rejected by default and allowed only when `trustAllTools: true`.
+
 ## Model Churn Handling
 
 The resolver intentionally avoids a hard whitelist. Fallback presets are used for OpenCode UI metadata and cache bootstrap only.

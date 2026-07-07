@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { createKiroFetch } from "../src/fetch-adapter.js"
-import { KiroAcpTransport, type AcpSessionClient } from "../src/acp-transport.js"
+import { acpPermissionResponse, KiroAcpTransport, type AcpSessionClient } from "../src/acp-transport.js"
 import type { AcpNotificationHandler } from "../src/acp-client.js"
 import { ModelCache } from "../src/model-cache.js"
 import { ModelResolver } from "../src/model-resolver.js"
@@ -58,6 +58,18 @@ class FakeAcpClient implements AcpSessionClient {
 }
 
 describe("Kiro ACP transport", () => {
+  test("selects reject permission option by default and allow option when trusted", () => {
+    const params = {
+      options: [
+        { optionId: "allow", kind: "allow_once" },
+        { optionId: "reject", kind: "reject_once" },
+      ],
+    }
+
+    expect(acpPermissionResponse(params)).toEqual({ outcome: { outcome: "selected", optionId: "reject" } })
+    expect(acpPermissionResponse(params, true)).toEqual({ outcome: { outcome: "selected", optionId: "allow" } })
+  })
+
   test("runs initialize, session, model selection, prompt, and collects assistant chunks", async () => {
     const client = new FakeAcpClient()
     const fetch = createKiroFetch({

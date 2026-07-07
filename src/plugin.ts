@@ -109,7 +109,7 @@ export function createKiroPlugin(): Plugin {
           const apiKey = await resolveApiKey(auth)
           const transport =
             options.backend === "acp"
-              ? new KiroAcpTransport()
+              ? new KiroAcpTransport({ trustAllTools: options.trustAllTools })
               : options.backend === "cli-chat"
               ? new KiroCliChatTransport({ trustAllTools: options.trustAllTools })
               : apiKey

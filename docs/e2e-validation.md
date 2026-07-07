@@ -119,6 +119,7 @@ Checks:
 - Text prompt creates an ACP session and returns assistant text.
 - Streaming prompt emits `AgentMessageChunk` text through OpenAI-compatible SSE.
 - Tool invocation emits OpenAI-compatible tool-call deltas.
+- Permission requests are rejected by default; repeat with `trustAllTools: true` only in a disposable workspace if you need to verify allow flows.
 - File input is sent as ACP embedded `resource` content; image input is sent as ACP `image` content.
 - Timeout waiting for `TurnEnd` returns `KIRO_ACP_TIMEOUT`.
 - Missing `kiro-cli` or a process crash returns `KIRO_ACP_PROCESS_ERROR` or `KIRO_ACP_PROCESS_EXITED`.

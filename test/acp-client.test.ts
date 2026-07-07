@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { AcpJsonRpcClient, decodeJsonRpc, encodeJsonRpc, type JsonRpcRequest } from "../src/acp-client.js"
+import { AcpJsonRpcClient, decodeJsonRpc, encodeJsonRpc, type JsonRpcMessage, type JsonRpcRequest } from "../src/acp-client.js"
 
 describe("ACP JSON-RPC client", () => {
   test("encodes and decodes newline-delimited JSON-RPC messages", () => {
@@ -11,7 +11,7 @@ describe("ACP JSON-RPC client", () => {
   })
 
   test("sends requests and resolves matching responses", async () => {
-    const sent: JsonRpcRequest[] = []
+    const sent: JsonRpcMessage[] = []
     const client = new AcpJsonRpcClient({
       send(message) {
         sent.push(message)
@@ -67,6 +67,54 @@ describe("ACP JSON-RPC client", () => {
 
     expect(notifications).toEqual([{ jsonrpc: "2.0", method: "progress", params: { value: 1 } }])
     await expect(promise).resolves.toBe("done")
+  })
+
+  test("responds to agent-origin JSON-RPC requests", async () => {
+    const sent: JsonRpcMessage[] = []
+    const client = new AcpJsonRpcClient(
+      {
+        send(message) {
+          sent.push(message)
+        },
+      },
+      {
+        onRequest(message) {
+          expect(message.method).toBe("session/request_permission")
+          return { outcome: { outcome: "selected", optionId: "allow-once" } }
+        },
+      },
+    )
+
+    client.receive({ jsonrpc: "2.0", id: 12, method: "session/request_permission", params: { options: [] } })
+    await Promise.resolve()
+
+    expect(sent).toEqual([
+      {
+        jsonrpc: "2.0",
+        id: 12,
+        result: { outcome: { outcome: "selected", optionId: "allow-once" } },
+      },
+    ])
+  })
+
+  test("returns method-not-found for unhandled agent-origin requests", async () => {
+    const sent: JsonRpcMessage[] = []
+    const client = new AcpJsonRpcClient({
+      send(message) {
+        sent.push(message)
+      },
+    })
+
+    client.receive({ jsonrpc: "2.0", id: 13, method: "unknown/method" })
+    await Promise.resolve()
+
+    expect(sent).toEqual([
+      {
+        jsonrpc: "2.0",
+        id: 13,
+        error: { code: -32601, message: "Method not found: unknown/method" },
+      },
+    ])
   })
 
   test("rejects all pending requests when the connection closes", async () => {

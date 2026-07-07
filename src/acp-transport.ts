@@ -2,7 +2,9 @@ import {
   createAcpStdioClient,
   type AcpJsonRpcClient,
   type AcpNotificationHandler,
+  type AcpRequestHandler,
   type JsonRpcNotification,
+  type JsonRpcRequest,
 } from "./acp-client.js"
 import { promptForCli } from "./cli-transport.js"
 import { KiroPluginError } from "./errors.js"
@@ -22,6 +24,7 @@ export interface KiroAcpTransportOptions {
   readonly args?: ReadonlyArray<string>
   readonly cwd?: string
   readonly promptTimeoutMs?: number
+  readonly trustAllTools?: boolean
   readonly clientInfo?: {
     readonly name: string
     readonly version: string
@@ -32,8 +35,35 @@ function record(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined
 }
 
+function arrayValue(value: unknown): ReadonlyArray<unknown> {
+  return Array.isArray(value) ? value : []
+}
+
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value ? value : undefined
+}
+
+export function acpPermissionResponse(params: unknown, trustAllTools = false): { outcome: { outcome: "selected"; optionId: string } } {
+  const options = arrayValue(record(params)?.options).map(record).filter((item): item is Record<string, unknown> => item !== undefined)
+  const preferredKinds = trustAllTools ? ["allow_always", "allow_once"] : ["reject_once", "reject_always"]
+  const selected =
+    preferredKinds
+      .map((kind) => options.find((option) => option.kind === kind))
+      .find((option): option is Record<string, unknown> => option !== undefined) ?? options[0]
+  const optionId = stringValue(selected?.optionId)
+  if (!optionId) {
+    throw new KiroPluginError("ACP permission request did not include selectable options.", "KIRO_ACP_PROTOCOL_ERROR", 502)
+  }
+  return {
+    outcome: {
+      outcome: "selected",
+      optionId,
+    },
+  }
+}
+
+function unsupportedAcpRequest(method: string): never {
+  throw new KiroPluginError(`Unsupported ACP client request: ${method}`, "KIRO_ACP_UNSUPPORTED_REQUEST", 502)
 }
 
 function sessionIdFrom(result: unknown): string {
@@ -244,8 +274,20 @@ export class KiroAcpTransport implements KiroTransport {
       ...(this.#options.cwd ? { cwd: this.#options.cwd } : {}),
     }
     return {
-      client: createAcpStdioClient(stdioOptions) as AcpJsonRpcClient,
+      client: createAcpStdioClient({
+        ...stdioOptions,
+        requestHandler: this.#requestHandler(),
+      }) as AcpJsonRpcClient,
       owned: true,
+    }
+  }
+
+  #requestHandler(): AcpRequestHandler {
+    return (message: JsonRpcRequest) => {
+      if (message.method === "session/request_permission") {
+        return acpPermissionResponse(message.params, this.#options.trustAllTools === true)
+      }
+      return unsupportedAcpRequest(message.method)
     }
   }
 
