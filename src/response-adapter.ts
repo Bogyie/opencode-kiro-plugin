@@ -1,6 +1,7 @@
 export interface KiroGenerateResponse {
   readonly text: string
   readonly modelId?: string
+  readonly toolCalls?: ReadonlyArray<KiroToolCallChunk>
   readonly usage?: {
     readonly inputTokens?: number
     readonly outputTokens?: number
@@ -24,6 +25,7 @@ export interface KiroToolCallChunk {
 export type KiroStreamEvent = KiroStreamChunk | KiroToolCallChunk
 
 export function toOpenAIChatResponse(response: KiroGenerateResponse, model: string): Response {
+  const toolCalls = response.toolCalls ?? []
   return Response.json({
     id: `kiro-${crypto.randomUUID()}`,
     object: "chat.completion",
@@ -34,9 +36,22 @@ export function toOpenAIChatResponse(response: KiroGenerateResponse, model: stri
         index: 0,
         message: {
           role: "assistant",
-          content: response.text,
+          content: toolCalls.length > 0 ? response.text || null : response.text,
+          ...(toolCalls.length > 0
+            ? {
+                tool_calls: toolCalls.map((toolCall, index) => ({
+                  index,
+                  id: toolCall.id,
+                  type: "function",
+                  function: {
+                    name: toolCall.name,
+                    arguments: toolCall.arguments,
+                  },
+                })),
+              }
+            : {}),
         },
-        finish_reason: "stop",
+        finish_reason: toolCalls.length > 0 ? "tool_calls" : "stop",
       },
     ],
     usage: {

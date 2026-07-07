@@ -176,6 +176,37 @@ describe("CodeWhispererKiroTransport", () => {
     })
   })
 
+  test("preserves tool calls in non-streaming generate responses", async () => {
+    const client: CodeWhispererClientLike = {
+      async send() {
+        return {
+          conversationId: "conversation",
+          generateAssistantResponseResponse: events([
+            { toolUseEvent: { toolUseId: "call-1", name: "read_file", input: '{"path":"README.md"}', stop: true } },
+          ]),
+          $metadata: {},
+        }
+      },
+    }
+    const transport = new CodeWhispererKiroTransport(
+      { region: "us-east-1", accessToken: "token" },
+      () => client,
+    )
+
+    await expect(transport.generate(request)).resolves.toEqual({
+      text: "",
+      modelId: "claude-sonnet-4.6",
+      toolCalls: [
+        {
+          type: "tool_call",
+          id: "call-1",
+          name: "read_file",
+          arguments: '{"path":"README.md"}',
+        },
+      ],
+    })
+  })
+
   test("passes retry and timeout options to injected client factory", () => {
     let seen: unknown
     const client: CodeWhispererClientLike = {

@@ -283,12 +283,18 @@ export class KiroAcpTransport implements KiroTransport {
 
   async generate(request: KiroGenerateRequest): Promise<KiroGenerateResponse> {
     const chunks: string[] = []
+    const toolCalls = []
     for await (const event of this.stream(request)) {
-      if (event.type !== "tool_call") chunks.push(event.text)
+      if (event.type === "tool_call") {
+        toolCalls.push(event)
+        continue
+      }
+      chunks.push(event.text)
     }
     return {
       text: chunks.join(""),
       modelId: request.modelId,
+      ...(toolCalls.length > 0 ? { toolCalls } : {}),
     }
   }
 

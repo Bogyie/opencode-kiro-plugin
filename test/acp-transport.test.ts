@@ -168,6 +168,44 @@ describe("Kiro ACP transport", () => {
     expect(body).toContain('\\"README.md\\"')
   })
 
+  test("returns ACP tool calls in non-streaming responses", async () => {
+    const client = new FakeAcpClient([
+      {
+        update: {
+          type: "ToolCall",
+          toolCallId: "call-1",
+          name: "read_file",
+          parameters: { path: "README.md" },
+        },
+      },
+      { update: { type: "TurnEnd" } },
+    ])
+    const fetch = createKiroFetch({
+      resolver: resolver(),
+      transport: new KiroAcpTransport({ client, promptTimeoutMs: 100 }),
+    })
+
+    const response = await fetch("https://q.us-east-1.amazonaws.com/chat/completions", {
+      method: "POST",
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        messages: [{ role: "user", content: "read README" }],
+      }),
+    })
+    const body = await response.json()
+
+    expect(body.choices[0].message.content).toBeNull()
+    expect(body.choices[0].message.tool_calls[0]).toMatchObject({
+      id: "call-1",
+      type: "function",
+      function: {
+        name: "read_file",
+        arguments: '{"path":"README.md"}',
+      },
+    })
+    expect(body.choices[0].finish_reason).toBe("tool_calls")
+  })
+
   test("streams standard ACP session/update tool_call notifications", async () => {
     const client = new FakeAcpClient(
       [

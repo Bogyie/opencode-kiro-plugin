@@ -116,6 +116,39 @@ describe("response adapter", () => {
     expect(body.choices[0].message.content).toBe("done")
     expect(body.usage.total_tokens).toBe(8)
   })
+
+  test("converts Kiro tool calls to non-streaming OpenAI chat response shape", async () => {
+    const response = toOpenAIChatResponse(
+      {
+        text: "",
+        modelId: "claude-sonnet-4.6",
+        toolCalls: [
+          {
+            type: "tool_call",
+            id: "call-1",
+            name: "read_file",
+            arguments: '{"path":"README.md"}',
+          },
+        ],
+      },
+      "claude-sonnet-4.6",
+    )
+    const body = await response.json()
+
+    expect(body.choices[0].message.content).toBeNull()
+    expect(body.choices[0].message.tool_calls).toEqual([
+      {
+        index: 0,
+        id: "call-1",
+        type: "function",
+        function: {
+          name: "read_file",
+          arguments: '{"path":"README.md"}',
+        },
+      },
+    ])
+    expect(body.choices[0].finish_reason).toBe("tool_calls")
+  })
 })
 
 describe("createKiroFetch", () => {

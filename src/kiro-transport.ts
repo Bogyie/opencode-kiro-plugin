@@ -205,14 +205,20 @@ export async function* streamAssistantText(
 async function collectChunks(chunks: AsyncIterable<KiroStreamEvent>, fallbackModelId: string): Promise<KiroGenerateResponse> {
   let text = ""
   let modelId: string | undefined
+  const toolCalls = []
   for await (const chunk of chunks) {
-    if (chunk.type === "tool_call") continue
+    if (chunk.type === "tool_call") {
+      toolCalls.push(chunk)
+      modelId = chunk.modelId ?? modelId
+      continue
+    }
     text += chunk.text
     modelId = chunk.modelId ?? modelId
   }
   return {
     text,
     modelId: modelId ?? fallbackModelId,
+    ...(toolCalls.length > 0 ? { toolCalls } : {}),
   }
 }
 
