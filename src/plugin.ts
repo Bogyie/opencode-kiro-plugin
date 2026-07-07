@@ -2,6 +2,9 @@ import type { Hooks, Plugin } from "@opencode-ai/plugin"
 import { tool } from "@opencode-ai/plugin"
 import { detectAuth, resolveApiKey } from "./auth.js"
 import { loadOptions } from "./config.js"
+import { createKiroFetch } from "./fetch-adapter.js"
+import { ModelCache } from "./model-cache.js"
+import { ModelResolver, normalizeModelName } from "./model-resolver.js"
 import { FALLBACK_MODELS } from "./models.js"
 
 type MutableConfig = Record<string, any>
@@ -17,6 +20,15 @@ export function createKiroPlugin(): Plugin {
   return async (_input, rawOptions): Promise<Hooks> => {
     const options = loadOptions(rawOptions)
     const baseURL = `https://q.${options.region}.amazonaws.com`
+    const modelCache = new ModelCache(options.modelCacheTtlSeconds)
+    modelCache.update(Object.keys(FALLBACK_MODELS).map((id) => ({ id: normalizeModelName(id) })))
+    const resolver = new ModelResolver({
+      cache: modelCache,
+      aliases: options.modelAliases,
+      hiddenModels: options.hiddenModels,
+      disabledModels: options.disabledModels,
+      disablePassThrough: options.disableModelPassThrough,
+    })
 
     return {
       config: async (config: MutableConfig) => {
@@ -56,6 +68,7 @@ export function createKiroPlugin(): Plugin {
           return {
             apiKey,
             baseURL,
+            fetch: createKiroFetch({ resolver }),
           }
         },
       },

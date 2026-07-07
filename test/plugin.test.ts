@@ -76,6 +76,7 @@ describe("Kiro plugin", () => {
 
       expect(loaded?.apiKey).toBe("env-key")
       expect(loaded?.baseURL).toBe("https://q.us-east-1.amazonaws.com")
+      expect(loaded?.fetch).toBeFunction()
     } finally {
       if (original === undefined) delete process.env.KIRO_API_KEY
       else process.env.KIRO_API_KEY = original
