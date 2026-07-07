@@ -14,6 +14,7 @@ export {
   regionFromProfileArn,
   resolveApiKey,
   startKiroCliLogin,
+  startKiroCliLoginOnce,
 } from "./auth.js"
 export { cliChatArgs, KiroCliChatTransport, promptForCli } from "./cli-transport.js"
 export { createKiroFetch } from "./fetch-adapter.js"

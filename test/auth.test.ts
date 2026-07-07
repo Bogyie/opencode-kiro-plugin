@@ -10,6 +10,7 @@ import {
   redacted,
   resolveApiKey,
   startKiroCliLogin,
+  startKiroCliLoginOnce,
   type CommandRunner,
 } from "../src/auth.js"
 import { getKiroCliStatus, getKiroCliVersion } from "../src/kiro-cli.js"
@@ -107,6 +108,30 @@ describe("auth diagnostics", () => {
     expect(session.url).toBe("https://example.com/device")
     expect(session.instructions).toContain("ABCD-EFGH")
     expect(authenticated).toBe(true)
+  })
+
+  test("reuses an in-flight Kiro CLI device login session", async () => {
+    const stdout = new PassThrough()
+    const stderr = new PassThrough()
+    const child = new EventEmitter() as EventEmitter & {
+      stdout: PassThrough
+      stderr: PassThrough
+    }
+    child.stdout = stdout
+    child.stderr = stderr
+    let starts = 0
+
+    const spawner = () => {
+      starts += 1
+      return child as unknown as ChildProcess
+    }
+
+    const first = startKiroCliLoginOnce(spawner)
+    const second = startKiroCliLoginOnce(spawner)
+
+    expect(second).toBe(first)
+    expect(starts).toBe(1)
+    await first.waitForAuth(async () => ({ ok: true, stdout: "dev@example.com", stderr: "" }))
   })
 
   test("reads Kiro CLI session credential from SQLite rows", async () => {

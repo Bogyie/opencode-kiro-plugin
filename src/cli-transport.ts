@@ -1,5 +1,5 @@
 import type { CommandRunner } from "./auth.js"
-import { runCommand, startKiroCliLogin } from "./auth.js"
+import { runCommand, startKiroCliLoginOnce as startSharedKiroCliLoginOnce } from "./auth.js"
 import { KiroPluginError } from "./errors.js"
 import type { KiroTransport } from "./fetch-adapter.js"
 import type { KiroGenerateRequest } from "./request-adapter.js"
@@ -22,7 +22,7 @@ function startKiroCliLoginOnce(): void {
   const now = Date.now()
   if (now - lastLoginStartAt < 30_000) return
   lastLoginStartAt = now
-  startKiroCliLogin()
+  startSharedKiroCliLoginOnce()
 }
 
 export function promptForCli(request: KiroGenerateRequest): string {
