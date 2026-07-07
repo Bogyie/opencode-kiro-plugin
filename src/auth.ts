@@ -20,11 +20,19 @@ export interface CommandResult {
   readonly error?: unknown
 }
 
-export type CommandRunner = (command: string, args: ReadonlyArray<string>) => Promise<CommandResult>
+export interface CommandRunOptions {
+  readonly timeoutMs?: number
+}
 
-export async function runCommand(command: string, args: ReadonlyArray<string>): Promise<CommandResult> {
+export type CommandRunner = (
+  command: string,
+  args: ReadonlyArray<string>,
+  options?: CommandRunOptions,
+) => Promise<CommandResult>
+
+export async function runCommand(command: string, args: ReadonlyArray<string>, options: CommandRunOptions = {}): Promise<CommandResult> {
   try {
-    const result = await execFileAsync(command, [...args], { timeout: 5000 })
+    const result = await execFileAsync(command, [...args], { timeout: options.timeoutMs ?? 5000 })
     return { ok: true, stdout: result.stdout, stderr: result.stderr }
   } catch (error) {
     const partial = error as { stdout?: string; stderr?: string }

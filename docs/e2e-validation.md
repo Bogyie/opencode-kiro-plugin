@@ -65,6 +65,7 @@ Config:
       "file:/absolute/path/to/opencode-kiro-plugin",
       {
         "backend": "cli-chat",
+        "requestTimeoutMs": 120000,
         "trustAllTools": false
       }
     ]
@@ -85,6 +86,7 @@ Checks:
 - Unauthenticated CLI state returns `KIRO_AUTH_ERROR`.
 - CLI failures return `KIRO_CLI_FAILED` with a readable message.
 - Model selection is documented as best-effort only; Kiro CLI does not currently expose a guaranteed per-request model flag for this path.
+- If CLI responses take longer than the default, raise `requestTimeoutMs`; this timeout is passed to the child `kiro-cli chat` process.
 
 ## Backend: acp
 
@@ -173,3 +175,13 @@ npm pack --dry-run
 ```
 
 Record any real Kiro/API limitations in `CHANGELOG.md` before publishing.
+
+## Latest Local Smoke
+
+2026-07-07:
+
+- `kiro-cli 2.6.1` and `opencode 1.17.14` were installed locally.
+- `kiro-cli whoami` succeeded with an IAM Identity Center session; account identifiers were not recorded here.
+- `kiro-cli chat --no-interactive "Say hello in one short sentence."` returned assistant text.
+- Built `KiroCliChatTransport` returned assistant text with `requestTimeoutMs: 30000`.
+- Full interactive OpenCode E2E and ACP prompt E2E still need to be run before release.

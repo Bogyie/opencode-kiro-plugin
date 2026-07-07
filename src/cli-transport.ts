@@ -8,6 +8,7 @@ import type { KiroGenerateResponse } from "./response-adapter.js"
 export interface CliChatTransportOptions {
   readonly runner?: CommandRunner
   readonly trustAllTools?: boolean
+  readonly requestTimeoutMs?: number
 }
 
 export function promptForCli(request: KiroGenerateRequest): string {
@@ -31,14 +32,18 @@ export function cliChatArgs(request: KiroGenerateRequest, options: Pick<CliChatT
 export class KiroCliChatTransport implements KiroTransport {
   readonly #runner: CommandRunner
   readonly #trustAllTools: boolean
+  readonly #requestTimeoutMs: number
 
   constructor(options: CliChatTransportOptions = {}) {
     this.#runner = options.runner ?? runCommand
     this.#trustAllTools = options.trustAllTools === true
+    this.#requestTimeoutMs = options.requestTimeoutMs ?? 120_000
   }
 
   async generate(request: KiroGenerateRequest): Promise<KiroGenerateResponse> {
-    const result = await this.#runner("kiro-cli", cliChatArgs(request, { trustAllTools: this.#trustAllTools }))
+    const result = await this.#runner("kiro-cli", cliChatArgs(request, { trustAllTools: this.#trustAllTools }), {
+      timeoutMs: this.#requestTimeoutMs,
+    })
     if (!result.ok) {
       const authError = result.stderr.toLowerCase().includes("not logged in")
       throw new KiroPluginError(

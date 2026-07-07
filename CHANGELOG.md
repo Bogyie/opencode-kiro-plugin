@@ -15,6 +15,7 @@ Initial OpenCode Kiro provider plugin implementation.
 - OpenAI-compatible request adapter for system prompts, chat history, multimodal data URL images/documents, tool specs, and tool results.
 - CodeWhisperer/Kiro transport with streaming text, tool-call deltas, configurable retry attempts, and request timeout.
 - CLI fallback using `kiro-cli chat --no-interactive`.
+- CLI fallback child process timeout can be controlled with `requestTimeoutMs`.
 - ACP fallback using `kiro-cli acp` JSON-RPC stdio with initialize/session/model/prompt flow.
 - ACP streaming for `AgentMessageChunk`, basic `ToolCall` events, and embedded document resources.
 - ACP agent-origin request handling for permission requests, with default reject and `trustAllTools` allow mode.

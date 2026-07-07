@@ -49,8 +49,8 @@ describe("CLI prompt helpers", () => {
 describe("KiroCliChatTransport", () => {
   test("returns stdout as text response", async () => {
     const calls: unknown[] = []
-    const runner: CommandRunner = async (command, args) => {
-      calls.push({ command, args })
+    const runner: CommandRunner = async (command, args, options) => {
+      calls.push({ command, args, options })
       return { ok: true, stdout: "done\n", stderr: "" }
     }
     const transport = new KiroCliChatTransport({ runner })
@@ -59,7 +59,20 @@ describe("KiroCliChatTransport", () => {
       text: "done",
       modelId: "claude-sonnet-4.6",
     })
-    expect(calls).toEqual([{ command: "kiro-cli", args: cliChatArgs(request) }])
+    expect(calls).toEqual([{ command: "kiro-cli", args: cliChatArgs(request), options: { timeoutMs: 120_000 } }])
+  })
+
+  test("passes configured request timeout to kiro-cli", async () => {
+    const calls: unknown[] = []
+    const runner: CommandRunner = async (command, args, options) => {
+      calls.push({ command, args, options })
+      return { ok: true, stdout: "done\n", stderr: "" }
+    }
+    const transport = new KiroCliChatTransport({ runner, requestTimeoutMs: 30_000 })
+
+    await transport.generate(request)
+
+    expect(calls).toEqual([{ command: "kiro-cli", args: cliChatArgs(request), options: { timeoutMs: 30_000 } }])
   })
 
   test("maps cli failures to plugin errors", async () => {

@@ -110,8 +110,11 @@ export function createKiroPlugin(): Plugin {
           const transport =
             options.backend === "acp"
               ? new KiroAcpTransport({ trustAllTools: options.trustAllTools })
-              : options.backend === "cli-chat"
-              ? new KiroCliChatTransport({ trustAllTools: options.trustAllTools })
+            : options.backend === "cli-chat"
+              ? new KiroCliChatTransport({
+                  trustAllTools: options.trustAllTools,
+                  ...(options.requestTimeoutMs ? { requestTimeoutMs: options.requestTimeoutMs } : {}),
+                })
               : apiKey
                 ? new CodeWhispererKiroTransport({
                     region: options.region,
@@ -120,7 +123,10 @@ export function createKiroPlugin(): Plugin {
                     ...(options.requestTimeoutMs ? { requestTimeoutMs: options.requestTimeoutMs } : {}),
                   })
                 : options.backend === "auto"
-                  ? new KiroCliChatTransport({ trustAllTools: options.trustAllTools })
+                  ? new KiroCliChatTransport({
+                      trustAllTools: options.trustAllTools,
+                      ...(options.requestTimeoutMs ? { requestTimeoutMs: options.requestTimeoutMs } : {}),
+                    })
                   : undefined
           return {
             apiKey,

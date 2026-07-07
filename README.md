@@ -134,7 +134,7 @@ This keeps new Kiro model ids usable before the package is updated. Use `extraMo
 - `KIRO_ACP_TIMEOUT`: ACP did not send a `TurnEnd` notification before the prompt timeout.
 - `KIRO_ACP_PROCESS_ERROR` or `KIRO_ACP_PROCESS_EXITED`: `kiro-cli acp` could not start or exited while a request was pending.
 
-Direct fetch mode uses AWS SDK standard retry behavior. Tune `maxAttempts` and `requestTimeoutMs` if you need stricter failure boundaries in automation.
+Direct fetch mode uses AWS SDK standard retry behavior. Tune `maxAttempts` and `requestTimeoutMs` if you need stricter failure boundaries in automation. `cli-chat` also uses `requestTimeoutMs` for the `kiro-cli chat --no-interactive` child process.
 
 For local checks:
 
