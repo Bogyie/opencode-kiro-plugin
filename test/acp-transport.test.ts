@@ -203,4 +203,60 @@ describe("Kiro ACP transport", () => {
     expect(body).toContain('"name":"execute"')
     expect(body).toContain('\\"npm test\\"')
   })
+
+  test("passes OpenAI file inputs to ACP as embedded resources", async () => {
+    const client = new FakeAcpClient()
+    const fetch = createKiroFetch({
+      resolver: resolver(),
+      transport: new KiroAcpTransport({ client, promptTimeoutMs: 100 }),
+    })
+
+    const response = await fetch("https://q.us-east-1.amazonaws.com/chat/completions", {
+      method: "POST",
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "summarize attachments" },
+              {
+                type: "file",
+                file: {
+                  filename: "notes.txt",
+                  file_data: "data:text/plain;base64,aGVsbG8=",
+                },
+              },
+              {
+                type: "file",
+                file: {
+                  filename: "spec.pdf",
+                  file_data: "data:application/pdf;base64,cGRm",
+                },
+              },
+            ],
+          },
+        ],
+      }),
+    })
+
+    expect(response.status).toBe(200)
+    const promptParams = client.requests[3]?.params as { content?: Array<Record<string, any>> }
+    expect(promptParams.content?.[1]).toEqual({
+      type: "resource",
+      resource: {
+        uri: "attachment://notes.txt",
+        mimeType: "text/plain",
+        text: "hello",
+      },
+    })
+    expect(promptParams.content?.[2]).toEqual({
+      type: "resource",
+      resource: {
+        uri: "attachment://spec.pdf",
+        mimeType: "application/pdf",
+        blob: "cGRm",
+      },
+    })
+  })
 })

@@ -138,7 +138,43 @@ function acpPromptContent(request: KiroGenerateRequest): Array<Record<string, un
     })
   }
 
+  for (const document of request.documents) {
+    const mimeType = documentMimeType(document.format)
+    const uri = `attachment://${encodeURIComponent(document.name)}`
+    if (document.format === "txt" || document.format === "md" || document.format === "csv" || document.format === "html") {
+      content.push({
+        type: "resource",
+        resource: {
+          uri,
+          mimeType,
+          text: Buffer.from(document.bytes).toString("utf8"),
+        },
+      })
+      continue
+    }
+    content.push({
+      type: "resource",
+      resource: {
+        uri,
+        mimeType,
+        blob: Buffer.from(document.bytes).toString("base64"),
+      },
+    })
+  }
+
   return content
+}
+
+function documentMimeType(format: KiroGenerateRequest["documents"][number]["format"]): string {
+  if (format === "pdf") return "application/pdf"
+  if (format === "txt") return "text/plain"
+  if (format === "md") return "text/markdown"
+  if (format === "csv") return "text/csv"
+  if (format === "html") return "text/html"
+  if (format === "doc") return "application/msword"
+  if (format === "docx") return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  if (format === "xls") return "application/vnd.ms-excel"
+  return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 }
 
 function timeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
