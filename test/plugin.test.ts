@@ -181,7 +181,7 @@ describe("Kiro plugin", () => {
     await hooks.dispose?.()
   })
 
-  test("does not inject the Kiro provider during startup", async () => {
+  test("injects a connector-visible provider shell without default models during startup", async () => {
     const marker = tempMarker()
     const hooks = await createKiroPlugin()(input, {
       modelDiscoveryCommand: marker.command,
@@ -191,7 +191,10 @@ describe("Kiro plugin", () => {
     try {
       await hooks.config?.(config)
 
-      expect(config.provider?.kiro).toBeUndefined()
+      expect(config.provider.kiro.name).toBe("Kiro")
+      expect(config.provider.kiro.npm).toBe("@ai-sdk/openai-compatible")
+      expect(config.provider.kiro.api.startsWith("http://127.0.0.1:")).toBe(true)
+      expect(config.provider.kiro.models).toEqual({})
       await new Promise((resolve) => setTimeout(resolve, 50))
       expect(existsSync(marker.marker)).toBe(false)
       await hooks.dispose?.()
@@ -225,7 +228,7 @@ describe("Kiro plugin", () => {
       await hooks.config?.(config)
       await new Promise((resolve) => setTimeout(resolve, 50))
 
-      expect(config.provider?.kiro).toBeUndefined()
+      expect(config.provider.kiro.models).toEqual({})
       expect(existsSync(marker.marker)).toBe(false)
       await hooks.dispose?.()
     } finally {

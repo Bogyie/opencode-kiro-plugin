@@ -249,8 +249,9 @@ export function createKiroPlugin(): Plugin {
         localServer = undefined
       },
       config: async (config: MutableConfig) => {
-        const provider = config.provider?.[options.providerID]
-        if (!provider) return
+        config.provider ??= {}
+        config.provider[options.providerID] ??= {}
+        const provider = config.provider[options.providerID]
         const server = await ensureLocalServer()
         userModelOverrides ??= modelRecord(provider.models)
         configuredModels = {
