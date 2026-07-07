@@ -11,6 +11,14 @@
           "sonnet": "claude-sonnet-4.6",
           "opus": "claude-opus-4.6"
         },
+        "extraModels": {
+          "claude-opus-4-9": {
+            "name": "Claude Opus 4.9",
+            "limit": { "context": 1000000, "output": 64000 },
+            "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] },
+            "tool_call": true
+          }
+        },
         "hiddenModels": {},
         "disabledModels": [],
         "disableModelPassThrough": false,

@@ -86,6 +86,14 @@ Useful options:
           "sonnet": "claude-sonnet-4.6",
           "opus": "claude-opus-4.6"
         },
+        "extraModels": {
+          "claude-opus-4-9": {
+            "name": "Claude Opus 4.9",
+            "limit": { "context": 1000000, "output": 64000 },
+            "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] },
+            "tool_call": true
+          }
+        },
         "hiddenModels": {
           "claude-sonnet-4.6-1m": "claude-sonnet-4.6-1m"
         },
@@ -103,10 +111,11 @@ Resolution order:
 2. Name normalization, for example `claude-sonnet-4-6` to `claude-sonnet-4.6`
 3. Disabled model check
 4. Dynamic cache hit
-5. Hidden/manual model mapping
-6. Optimistic pass-through unless disabled
+5. Extra model preset cache hit
+6. Hidden/manual model mapping
+7. Optimistic pass-through unless disabled
 
-This keeps new Kiro model ids usable before the package is updated. Set `disableModelPassThrough: true` only when you need strict model governance.
+This keeps new Kiro model ids usable before the package is updated. Use `extraModels` when a new model should appear in OpenCode's model picker immediately. Set `disableModelPassThrough: true` only when you need strict model governance.
 
 ## Troubleshooting
 

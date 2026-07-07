@@ -42,6 +42,31 @@ describe("Kiro plugin", () => {
     expect(config.provider.kiro.models["claude-sonnet-4-6"].limit.context).toBe(1_000_000)
   })
 
+  test("injects extra model presets and lets user config override them", async () => {
+    const hooks = await createKiroPlugin()(input, {
+      extraModels: {
+        "claude-opus-4-9": {
+          name: "Claude Opus 4.9",
+          limit: { context: 1_000_000, output: 64_000 },
+        },
+      },
+    })
+    const config: any = {
+      provider: {
+        kiro: {
+          models: {
+            "claude-opus-4-9": { name: "User Opus" },
+          },
+        },
+      },
+    }
+
+    await hooks.config?.(config)
+
+    expect(config.provider.kiro.models["claude-opus-4-9"].name).toBe("User Opus")
+    expect(config.provider.kiro.models["claude-sonnet-4-6"].name).toBe("Claude Sonnet 4.6")
+  })
+
   test("provider hook adds OpenAI-compatible API metadata to models", async () => {
     const hooks = await createKiroPlugin()(input, { region: "eu-central-1" })
     const models = await hooks.provider?.models?.(
@@ -81,6 +106,34 @@ describe("Kiro plugin", () => {
       if (original === undefined) delete process.env.KIRO_API_KEY
       else process.env.KIRO_API_KEY = original
     }
+  })
+
+  test("auth loader resolves extra models without pass-through", async () => {
+    const hooks = await createKiroPlugin()(input, {
+      backend: "acp",
+      disableModelPassThrough: true,
+      extraModels: {
+        "claude-opus-4-9": { name: "Claude Opus 4.9" },
+      },
+    })
+    const loaded = await hooks.auth?.loader?.(
+      async () => {
+        throw new Error("not connected")
+      },
+      {} as any,
+    )
+
+    const response = await loaded?.fetch("https://q.us-east-1.amazonaws.com/chat/completions", {
+      method: "POST",
+      body: JSON.stringify({
+        model: "claude-opus-4-9",
+        messages: [{ role: "user", content: "hello" }],
+      }),
+    })
+    const body = await response?.json()
+
+    expect(response?.status).toBe(501)
+    expect(body.error.code).toBe("KIRO_ACP_NOT_IMPLEMENTED")
   })
 
   test("auth loader wires ACP backend without requiring API key", async () => {

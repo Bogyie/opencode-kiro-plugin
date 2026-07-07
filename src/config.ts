@@ -8,6 +8,7 @@ export interface KiroPluginOptions {
   readonly modelDiscovery: ModelDiscoveryMode
   readonly modelCacheTtlSeconds: number
   readonly modelAliases: Readonly<Record<string, string>>
+  readonly extraModels: Readonly<Record<string, Record<string, unknown>>>
   readonly hiddenModels: Readonly<Record<string, string>>
   readonly disabledModels: ReadonlyArray<string>
   readonly disableModelPassThrough: boolean
@@ -35,6 +36,16 @@ function stringArray(value: unknown): string[] {
   return value.filter((item): item is string => typeof item === "string")
 }
 
+function objectRecord(value: unknown): Record<string, Record<string, unknown>> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {}
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).filter(
+      (entry): entry is [string, Record<string, unknown>] =>
+        Boolean(entry[0]) && Boolean(entry[1]) && typeof entry[1] === "object" && !Array.isArray(entry[1]),
+    ),
+  )
+}
+
 function positiveNumber(value: unknown, fallback: number): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return fallback
   return value
@@ -56,6 +67,7 @@ export function loadOptions(raw: unknown = {}): KiroPluginOptions {
     modelDiscovery,
     modelCacheTtlSeconds: positiveNumber(input.modelCacheTtlSeconds, DEFAULT_MODEL_CACHE_TTL_SECONDS),
     modelAliases: stringRecord(input.modelAliases),
+    extraModels: objectRecord(input.extraModels),
     hiddenModels: stringRecord(input.hiddenModels),
     disabledModels: stringArray(input.disabledModels),
     disableModelPassThrough: input.disableModelPassThrough === true,

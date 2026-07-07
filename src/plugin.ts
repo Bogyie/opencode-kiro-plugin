@@ -12,9 +12,13 @@ import { FALLBACK_MODELS } from "./models.js"
 
 type MutableConfig = Record<string, any>
 
-function mergeModels(existing: Record<string, unknown> | undefined): Record<string, unknown> {
+function mergeModels(
+  extraModels: Readonly<Record<string, Record<string, unknown>>>,
+  existing: Record<string, unknown> | undefined,
+): Record<string, unknown> {
   return {
     ...FALLBACK_MODELS,
+    ...extraModels,
     ...(existing ?? {}),
   }
 }
@@ -24,7 +28,7 @@ export function createKiroPlugin(): Plugin {
     const options = loadOptions(rawOptions)
     const baseURL = `https://q.${options.region}.amazonaws.com`
     const modelCache = new ModelCache(options.modelCacheTtlSeconds)
-    modelCache.update(Object.keys(FALLBACK_MODELS).map((id) => ({ id: normalizeModelName(id) })))
+    modelCache.update([...Object.keys(FALLBACK_MODELS), ...Object.keys(options.extraModels)].map((id) => ({ id: normalizeModelName(id) })))
     const resolver = new ModelResolver({
       cache: modelCache,
       aliases: options.modelAliases,
@@ -43,7 +47,7 @@ export function createKiroPlugin(): Plugin {
         provider.npm = "@ai-sdk/openai-compatible"
         provider.api ??= baseURL
         provider.options ??= {}
-        provider.models = mergeModels(provider.models)
+        provider.models = mergeModels(options.extraModels, provider.models)
       },
       auth: {
         provider: options.providerID,
