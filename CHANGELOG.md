@@ -19,6 +19,7 @@ Initial OpenCode Kiro provider plugin implementation.
 - CLI fallback child process timeout can be controlled with `requestTimeoutMs`.
 - ACP fallback using `kiro-cli acp` JSON-RPC stdio with initialize/session/model/prompt flow.
 - ACP streaming for `AgentMessageChunk`, basic `ToolCall` events, and embedded document resources.
+- ACP tool-call update handling now ignores progress/result-only updates that do not carry invocation payloads and deduplicates repeated tool calls by id in non-streaming responses.
 - ACP agent-origin request handling for permission requests, with default reject and `trustAllTools` allow mode.
 - ACP stdio client ignores non-JSON stdout log lines emitted by `kiro-cli acp --verbose` before JSON-RPC messages.
 - Clean build artifacts before packaging and add a built package import smoke check.

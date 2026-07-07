@@ -245,6 +245,97 @@ describe("Kiro ACP transport", () => {
     expect(body.choices[0].finish_reason).toBe("tool_calls")
   })
 
+  test("ignores ACP tool progress updates without invocation payload", async () => {
+    const client = new FakeAcpClient([
+      {
+        update: {
+          type: "ToolCall",
+          toolCallId: "call-1",
+          name: "read_file",
+          parameters: { path: "README.md" },
+        },
+      },
+      {
+        update: {
+          type: "ToolCallUpdate",
+          toolCallId: "call-1",
+          status: "running",
+          content: "Reading README.md",
+        },
+      },
+      {
+        update: {
+          type: "ToolCallUpdate",
+          toolCallId: "call-1",
+          status: "completed",
+          result: { bytesRead: 42 },
+        },
+      },
+      { update: { type: "TurnEnd" } },
+    ])
+    const fetch = createKiroFetch({
+      resolver: resolver(),
+      transport: new KiroAcpTransport({ client, promptTimeoutMs: 100 }),
+    })
+
+    const response = await fetch("https://q.us-east-1.amazonaws.com/chat/completions", {
+      method: "POST",
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        messages: [{ role: "user", content: "read README" }],
+        stream: true,
+      }),
+    })
+    const body = await response.text()
+
+    expect(body.match(/"id":"call-1"/g)?.length).toBe(1)
+    expect(body).toContain('"id":"call-1"')
+    expect(body).toContain('"name":"read_file"')
+    expect(body).not.toContain('"name":"tool"')
+    expect(body).not.toContain('"arguments":"{}"')
+  })
+
+  test("deduplicates ACP tool call updates in non-streaming responses", async () => {
+    const client = new FakeAcpClient([
+      {
+        update: {
+          type: "ToolCall",
+          toolCallId: "call-1",
+          name: "read_file",
+          parameters: { path: "README.md" },
+        },
+      },
+      {
+        update: {
+          type: "ToolCallUpdate",
+          toolCallId: "call-1",
+          name: "read_file",
+          parameters: { path: "CHANGELOG.md" },
+        },
+      },
+      { update: { type: "TurnEnd" } },
+    ])
+    const fetch = createKiroFetch({
+      resolver: resolver(),
+      transport: new KiroAcpTransport({ client, promptTimeoutMs: 100 }),
+    })
+
+    const response = await fetch("https://q.us-east-1.amazonaws.com/chat/completions", {
+      method: "POST",
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        messages: [{ role: "user", content: "read README" }],
+      }),
+    })
+    const body = await response.json()
+
+    expect(body.choices[0].message.tool_calls).toHaveLength(1)
+    expect(body.choices[0].message.tool_calls[0].function).toEqual({
+      name: "read_file",
+      arguments: '{"path":"CHANGELOG.md"}',
+    })
+  })
+
   test("streams standard ACP session/update tool_call notifications", async () => {
     const client = new FakeAcpClient(
       [

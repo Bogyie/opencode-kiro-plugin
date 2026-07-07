@@ -10,7 +10,7 @@ import { promptForCli } from "./cli-transport.js"
 import { KiroPluginError } from "./errors.js"
 import type { KiroTransport } from "./fetch-adapter.js"
 import type { KiroGenerateRequest } from "./request-adapter.js"
-import type { KiroGenerateResponse, KiroStreamEvent } from "./response-adapter.js"
+import type { KiroGenerateResponse, KiroStreamEvent, KiroToolCallChunk } from "./response-adapter.js"
 
 export interface AcpSessionClient {
   request(method: string, params?: unknown): Promise<unknown>
@@ -128,25 +128,42 @@ function jsonArguments(value: unknown): string {
   return JSON.stringify(value)
 }
 
-function toolCallFromUpdate(update: Record<string, unknown>, modelId: string): KiroStreamEvent | undefined {
+function firstDefined(...values: unknown[]): unknown {
+  return values.find((value) => value !== undefined)
+}
+
+function toolCallDetail(update: Record<string, unknown>): Record<string, unknown> {
+  const detail = record(update.update) ?? update
+  return (
+    record(detail.toolCall) ??
+    record(detail.tool_call) ??
+    record(detail.call) ??
+    record(record(detail.delta)?.toolCall) ??
+    record(record(detail.delta)?.tool_call) ??
+    detail
+  )
+}
+
+function toolCallFromUpdate(update: Record<string, unknown>, modelId: string): KiroToolCallChunk | undefined {
   const type = updateType(update)
   if (type !== "ToolCall" && type !== "ToolCallUpdate" && type !== "tool_call" && type !== "tool_call_update") return undefined
 
-  const detail = record(update.update) ?? update
+  const detail = toolCallDetail(update)
   const id =
     stringValue(detail.toolCallId) ??
     stringValue(detail.tool_call_id) ??
     stringValue(detail.id) ??
     stringValue(detail.callId) ??
     `acp-tool-${crypto.randomUUID()}`
-  const rawName =
+  const explicitName =
     stringValue(detail.name) ??
     stringValue(detail.toolName) ??
-    stringValue(detail.tool_name) ??
-    stringValue(detail.kind) ??
-    stringValue(detail.title) ??
-    "tool"
-  const rawArguments = detail.rawInput ?? detail.input ?? detail.parameters ?? detail.params ?? detail.args ?? detail.arguments
+    stringValue(detail.tool_name)
+  const rawArguments = firstDefined(detail.rawInput, detail.input, detail.parameters, detail.params, detail.args, detail.arguments)
+  if ((type === "ToolCallUpdate" || type === "tool_call_update") && rawArguments === undefined && !explicitName) {
+    return undefined
+  }
+  const rawName = explicitName ?? (rawArguments !== undefined ? stringValue(detail.kind) ?? stringValue(detail.title) : undefined) ?? "tool"
 
   return {
     type: "tool_call",
@@ -325,18 +342,19 @@ export class KiroAcpTransport implements KiroTransport {
 
   async generate(request: KiroGenerateRequest): Promise<KiroGenerateResponse> {
     const chunks: string[] = []
-    const toolCalls = []
+    const toolCalls = new Map<string, KiroToolCallChunk>()
     for await (const event of this.stream(request)) {
       if (event.type === "tool_call") {
-        toolCalls.push(event)
+        toolCalls.set(event.id, event)
         continue
       }
       chunks.push(event.text)
     }
+    const collectedToolCalls = [...toolCalls.values()]
     return {
       text: chunks.join(""),
       modelId: request.modelId,
-      ...(toolCalls.length > 0 ? { toolCalls } : {}),
+      ...(collectedToolCalls.length > 0 ? { toolCalls: collectedToolCalls } : {}),
     }
   }
 
@@ -346,6 +364,7 @@ export class KiroAcpTransport implements KiroTransport {
     const queue = new AsyncQueue<KiroStreamEvent>()
     let sessionId: string | undefined
     let completed = false
+    const seenToolCallPayloads = new Map<string, string>()
     const timer = setTimeout(() => {
       queue.fail(new KiroPluginError("Timed out waiting for ACP TurnEnd notification.", "KIRO_ACP_TIMEOUT", 504))
     }, promptTimeoutMs)
@@ -355,7 +374,13 @@ export class KiroAcpTransport implements KiroTransport {
       const text = textFromUpdate(update)
       if (text) queue.push({ type: "text", text, modelId: request.modelId })
       const toolCall = toolCallFromUpdate(update, request.modelId)
-      if (toolCall) queue.push(toolCall)
+      if (toolCall) {
+        const payload = `${toolCall.name}\n${toolCall.arguments}`
+        if (seenToolCallPayloads.get(toolCall.id) !== payload) {
+          seenToolCallPayloads.set(toolCall.id, payload)
+          queue.push(toolCall)
+        }
+      }
       if (isTurnEnd(update)) {
         completed = true
         queue.close()
