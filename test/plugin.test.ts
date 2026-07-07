@@ -14,14 +14,14 @@ const input = {
 const withoutDiscovery = { modelDiscovery: "off" } as const
 
 describe("Kiro plugin", () => {
-  test("selects streaming cli-chat as the auto fallback without direct fetch auth", () => {
+  test("selects direct fetch as the auto backend", () => {
     const original = process.env.KIRO_API_KEY
     delete process.env.KIRO_API_KEY
     try {
-      expect(effectiveBackend({ backend: "auto" })).toBe("cli-chat")
-      expect(effectiveBackend({ backend: "auto" }, "kiro-plugin-local-transport")).toBe("cli-chat")
+      expect(effectiveBackend({ backend: "auto" })).toBe("fetch")
+      expect(effectiveBackend({ backend: "auto" }, "kiro-plugin-local-transport")).toBe("fetch")
       expect(effectiveBackend({ backend: "auto" }, "token")).toBe("fetch")
-      expect(effectiveBackend({ backend: "fetch" })).toBe("none")
+      expect(effectiveBackend({ backend: "fetch" })).toBe("fetch")
       expect(effectiveBackend({ backend: "cli-chat" })).toBe("cli-chat")
     } finally {
       if (original === undefined) delete process.env.KIRO_API_KEY
@@ -39,7 +39,7 @@ describe("Kiro plugin", () => {
     })
   })
 
-  test("maps plugin fetch options to CodeWhisperer transport options", () => {
+  test("maps plugin fetch options to Kiro REST transport options", () => {
     expect(
       fetchTransportOptions(
         {

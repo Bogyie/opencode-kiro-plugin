@@ -2,7 +2,7 @@
 
 OpenCode server plugin that registers Kiro as an OpenAI-compatible provider and adapts requests to Kiro backends.
 
-Status: early implementation. The CodeWhisperer streaming transport, CLI chat fallback, model resolver, multimodal request mapping, streaming text, and tool-call chunk mapping are implemented with unit tests. The ACP backend implements JSON-RPC stdio framing, initialize/session/model/prompt flow, streaming text from `AgentMessageChunk`, and basic `ToolCall` streaming; full ACP tool progress/result parity is still in progress.
+Status: early implementation. The direct Kiro REST/EventStream transport, CLI chat fallback, model resolver, multimodal request mapping, streaming text, and tool-call chunk mapping are implemented with unit tests. The ACP backend implements JSON-RPC stdio framing, initialize/session/model/prompt flow, streaming text from `AgentMessageChunk`, and basic `ToolCall` streaming; full ACP tool progress/result parity is still in progress.
 
 ## Install
 
@@ -35,11 +35,12 @@ The plugin resolves credentials in this order:
 
 1. `KIRO_API_KEY`
 2. OpenCode auth input for provider `kiro`
-3. `kiro-cli whoami` diagnostics for CLI session visibility
+3. Local Kiro CLI session token from the Kiro CLI SQLite store
+4. `kiro-cli whoami` diagnostics for CLI session visibility
 
 When no usable Kiro CLI session is available, choose the `Kiro CLI login` auth method in OpenCode. The plugin starts `kiro-cli login --use-device-flow`, opens the browser through the official CLI login flow, and waits until `kiro-cli whoami` succeeds.
 
-Direct fetch mode requires an API key/token usable by the Kiro/CodeWhisperer client. `cli-chat` mode uses the official `kiro-cli chat --no-interactive` surface and depends on the local Kiro CLI login state. `acp` mode uses the official `kiro-cli acp` surface, but is still treated as an explicit backend while its real-world protocol behavior is validated across Kiro CLI versions.
+Direct fetch mode uses a usable API key/token when one is configured; otherwise it reads the active Kiro CLI session token and calls Kiro's REST/EventStream endpoint directly. `cli-chat` mode uses the official `kiro-cli chat --no-interactive` surface and depends on the local Kiro CLI login state. `acp` mode uses the official `kiro-cli acp` surface, but is still treated as an explicit backend while its real-world protocol behavior is validated across Kiro CLI versions.
 
 Use the `kiro_status` plugin tool to inspect provider id, backend, region, auth method, and discovered model count. Secrets are redacted in diagnostics.
 
@@ -67,8 +68,8 @@ Configure the backend through plugin options:
 
 Supported values:
 
-- `auto`: use CodeWhisperer fetch transport when an API key is available; otherwise use streaming `cli-chat` with the local Kiro CLI login.
-- `fetch`: require the direct Kiro/CodeWhisperer fetch path. If no usable auth is available, requests fail with a structured backend/auth error.
+- `auto`: use the direct Kiro REST/EventStream fetch transport. It uses `KIRO_API_KEY` or OpenCode auth when present, otherwise the active Kiro CLI session token.
+- `fetch`: require the direct Kiro REST/EventStream fetch path. If no usable auth is available, requests fail with a structured backend/auth error.
 - `cli-chat`: spawn `kiro-cli chat --no-interactive --model <model>` and stream stdout chunks as they arrive. Chunk granularity is controlled by Kiro CLI.
 - `acp`: launch `kiro-cli acp`, initialize a session, optionally set the requested model, send the prompt, and collect `AgentMessageChunk` notifications until `TurnEnd`.
 
@@ -137,9 +138,9 @@ The plugin injects `provider.kiro` automatically. You only need to add `provider
 - `KIRO_ACP_TIMEOUT`: ACP did not send a `TurnEnd` notification before the prompt timeout.
 - `KIRO_ACP_PROCESS_ERROR` or `KIRO_ACP_PROCESS_EXITED`: `kiro-cli acp` could not start or exited while a request was pending.
 
-Direct fetch mode uses AWS SDK standard retry behavior. Tune `maxAttempts` and `requestTimeoutMs` if you need stricter failure boundaries in automation. Fetch mode also accepts `endpoint`, `profileArn`, `userAgent`, and `agentMode` for controlled environments. `cli-chat` uses `requestTimeoutMs` for the `kiro-cli chat --no-interactive` child process, and ACP uses it while waiting for `session/prompt` completion and `TurnEnd`.
+Direct fetch mode calls Kiro's `generateAssistantResponse` endpoint and can fall back from the `q` endpoint to the CodeWhisperer endpoint on quota or upstream failures. Tune `maxAttempts` and `requestTimeoutMs` if you need stricter failure boundaries in automation. Fetch mode also accepts `endpoint`, `profileArn`, `userAgent`, and `agentMode` for controlled environments. `cli-chat` uses `requestTimeoutMs` for the `kiro-cli chat --no-interactive` child process, and ACP uses it while waiting for `session/prompt` completion and `TurnEnd`.
 
-OpenAI-compatible `temperature`, `max_tokens`, `max_completion_tokens`, `reasoning_effort`, `reasoning.effort`, and `thinking.effort` are preserved for direct fetch mode through Kiro's `additionalModelRequestFields` path on a best-effort basis.
+OpenAI-compatible `temperature`, `max_tokens`, and `max_completion_tokens` are preserved for direct fetch mode through Kiro's `inferenceConfig` fields on a best-effort basis.
 
 When Kiro emits token metadata in direct fetch mode, non-streaming responses map it to OpenAI-compatible `usage` fields.
 When Kiro emits reasoning text, it is preserved separately from assistant text as `reasoning_content`.

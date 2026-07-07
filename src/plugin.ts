@@ -11,8 +11,8 @@ import { startLocalKiroServer, type LocalKiroServer } from "./local-server.js"
 import { ModelCache } from "./model-cache.js"
 import { refreshModelCacheFromCommand } from "./model-discovery.js"
 import { ModelResolver, normalizeModelName } from "./model-resolver.js"
-import { CodeWhispererKiroTransport } from "./kiro-transport.js"
-import type { KiroTransportOptions } from "./kiro-transport.js"
+import { KiroRestTransport } from "./kiro-rest-transport.js"
+import type { KiroRestTransportOptions } from "./kiro-rest-transport.js"
 import type { ProviderModelConfig } from "./models.js"
 
 type MutableConfig = Record<string, any>
@@ -78,9 +78,9 @@ export function effectiveBackend(options: Pick<KiroPluginOptions, "backend">, ac
   const apiKey = accessToken || process.env.KIRO_API_KEY
   if (options.backend === "acp") return "acp"
   if (options.backend === "cli-chat") return "cli-chat"
-  if (options.backend === "fetch") return apiKey && apiKey !== "kiro-plugin-local-transport" ? "fetch" : "none"
+  if (options.backend === "fetch") return "fetch"
   if (apiKey && apiKey !== "kiro-plugin-local-transport") return "fetch"
-  return "cli-chat"
+  return "fetch"
 }
 
 function localTransport(options: KiroPluginOptions, accessToken?: string): KiroTransport | undefined {
@@ -94,8 +94,7 @@ function localTransport(options: KiroPluginOptions, accessToken?: string): KiroT
   }
   if (backend === "fetch") {
     const apiKey = accessToken || process.env.KIRO_API_KEY
-    if (!apiKey || apiKey === "kiro-plugin-local-transport") return undefined
-    return new CodeWhispererKiroTransport(fetchTransportOptions(options, apiKey))
+    return new KiroRestTransport(fetchTransportOptions(options, apiKey === "kiro-plugin-local-transport" ? undefined : apiKey))
   }
   return undefined
 }
@@ -109,11 +108,11 @@ export function acpTransportOptions(options: Pick<KiroPluginOptions, "requestTim
 
 export function fetchTransportOptions(
   options: Pick<KiroPluginOptions, "region" | "endpoint" | "profileArn" | "userAgent" | "agentMode" | "maxAttempts" | "requestTimeoutMs">,
-  accessToken: string,
-): KiroTransportOptions {
+  accessToken?: string,
+): KiroRestTransportOptions {
   return {
     region: options.region,
-    accessToken,
+    ...(accessToken ? { accessToken } : {}),
     maxAttempts: options.maxAttempts,
     ...(options.endpoint ? { endpoint: options.endpoint } : {}),
     ...(options.profileArn ? { profileArn: options.profileArn } : {}),

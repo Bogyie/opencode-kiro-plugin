@@ -1,5 +1,8 @@
 import { execFile } from "node:child_process"
 import { spawn, type ChildProcess } from "node:child_process"
+import { existsSync } from "node:fs"
+import { homedir } from "node:os"
+import { join } from "node:path"
 import { promisify } from "node:util"
 
 const execFileAsync = promisify(execFile)
@@ -33,6 +36,20 @@ export type CommandRunner = (
 
 export type ProcessSpawner = (command: string, args: ReadonlyArray<string>) => ChildProcess
 
+export interface KiroCliSessionCredential {
+  readonly accessToken: string
+  readonly refreshToken?: string
+  readonly expiresAt?: string
+  readonly profileArn?: string
+  readonly region: string
+  readonly source: string
+}
+
+export interface KiroCliSessionCredentialOptions {
+  readonly dbPath?: string
+  readonly tokenKeys?: ReadonlyArray<string>
+}
+
 export interface KiroLoginSession {
   readonly url: string
   readonly instructions: string
@@ -40,6 +57,8 @@ export interface KiroLoginSession {
 }
 
 export const KIRO_LOGIN_URL = "https://view.awsapps.com/start"
+export const DEFAULT_KIRO_CLI_DB_PATH = join(homedir(), "Library", "Application Support", "kiro-cli", "data.sqlite3")
+export const DEFAULT_KIRO_CLI_TOKEN_KEYS = ["kirocli:odic:token", "codewhisperer:odic:token"] as const
 
 export async function runCommand(command: string, args: ReadonlyArray<string>, options: CommandRunOptions = {}): Promise<CommandResult> {
   try {
@@ -54,6 +73,82 @@ export async function runCommand(command: string, args: ReadonlyArray<string>, o
       error,
     }
   }
+}
+
+function sqlString(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`
+}
+
+function jsonObject(value: string): Record<string, unknown> | undefined {
+  try {
+    const parsed = JSON.parse(value) as unknown
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function stringField(input: Record<string, unknown> | undefined, ...keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = input?.[key]
+    if (typeof value === "string" && value.trim()) return value.trim()
+  }
+  return undefined
+}
+
+export function regionFromProfileArn(profileArn: string | undefined): string | undefined {
+  const match = /^arn:aws:codewhisperer:([^:]+):/.exec(profileArn?.trim() ?? "")
+  return match?.[1]
+}
+
+async function sqliteValue(
+  dbPath: string,
+  table: "auth_kv" | "state",
+  key: string,
+  runner: CommandRunner,
+): Promise<string | undefined> {
+  if (!existsSync(dbPath)) return undefined
+  const result = await runner("sqlite3", [dbPath, `select value from ${table} where key=${sqlString(key)} limit 1`], {
+    timeoutMs: 5000,
+  })
+  if (!result.ok) return undefined
+  const value = result.stdout.trim()
+  return value || undefined
+}
+
+function profileArnFromState(value: string | undefined): string | undefined {
+  if (!value) return undefined
+  if (value.startsWith("arn:aws:codewhisperer:")) return value
+  const parsed = jsonObject(value)
+  return stringField(parsed, "profileArn", "arn", "id")
+}
+
+export async function readKiroCliSessionCredential(
+  options: KiroCliSessionCredentialOptions = {},
+  runner: CommandRunner = runCommand,
+): Promise<KiroCliSessionCredential | undefined> {
+  const dbPath = options.dbPath ?? DEFAULT_KIRO_CLI_DB_PATH
+  const tokenKeys = options.tokenKeys ?? DEFAULT_KIRO_CLI_TOKEN_KEYS
+  const profileArn = profileArnFromState(await sqliteValue(dbPath, "state", "api.codewhisperer.profile", runner))
+
+  for (const key of tokenKeys) {
+    const raw = await sqliteValue(dbPath, "auth_kv", key, runner)
+    const parsed = raw ? jsonObject(raw) : undefined
+    const accessToken = stringField(parsed, "access_token", "accessToken", "token")
+    if (!accessToken) continue
+    const refreshToken = stringField(parsed, "refresh_token", "refreshToken")
+    const expiresAt = stringField(parsed, "expires_at", "expiresAt", "expiration")
+    return {
+      accessToken,
+      ...(refreshToken ? { refreshToken } : {}),
+      ...(expiresAt ? { expiresAt } : {}),
+      ...(profileArn ? { profileArn } : {}),
+      region: regionFromProfileArn(profileArn) ?? "us-east-1",
+      source: key,
+    }
+  }
+
+  return undefined
 }
 
 function delay(ms: number): Promise<void> {

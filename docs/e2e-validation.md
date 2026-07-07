@@ -16,7 +16,7 @@ npm run build
 
 ## Backend: fetch
 
-Use this when you have a token/API key that works with the CodeWhisperer/Kiro transport.
+Use this for the default direct Kiro REST/EventStream path. It can use `KIRO_API_KEY`, OpenCode auth, or the active Kiro CLI session token from the local Kiro CLI SQLite store.
 
 Config:
 
@@ -41,7 +41,9 @@ Config:
 Environment:
 
 ```sh
-export KIRO_API_KEY="..."
+kiro-cli whoami
+# Optional explicit token override:
+# export KIRO_API_KEY="..."
 ```
 
 Checks:
@@ -49,7 +51,7 @@ Checks:
 - Text prompt returns a normal assistant response.
 - `stream: true` prompt renders incrementally.
 - A prompt that triggers tool use returns OpenAI-compatible `tool_calls` in both streaming and non-streaming modes.
-- A data URL image or PDF prompt reaches Kiro without external URL fetching.
+- A data URL image prompt reaches Kiro without external URL fetching.
 - Invalid/expired auth returns `KIRO_AUTH_ERROR`, not a raw SDK exception.
 - Rate/quota failure returns `KIRO_RATE_LIMIT`.
 - Lowering `requestTimeoutMs` produces `KIRO_TIMEOUT`.

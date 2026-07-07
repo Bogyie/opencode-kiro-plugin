@@ -6,6 +6,7 @@ import {
   detectAuth,
   extractKiroLoginUrl,
   KIRO_LOGIN_URL,
+  readKiroCliSessionCredential,
   redacted,
   resolveApiKey,
   startKiroCliLogin,
@@ -106,6 +107,42 @@ describe("auth diagnostics", () => {
     expect(session.url).toBe("https://example.com/device")
     expect(session.instructions).toContain("ABCD-EFGH")
     expect(authenticated).toBe(true)
+  })
+
+  test("reads Kiro CLI session credential from SQLite rows", async () => {
+    const runner: CommandRunner = async (_command, args) => {
+      const query = args[1]
+      if (typeof query === "string" && query.includes("api.codewhisperer.profile")) {
+        return {
+          ok: true,
+          stdout: "arn:aws:codewhisperer:us-east-1:123456789012:profile/test",
+          stderr: "",
+        }
+      }
+      if (typeof query === "string" && query.includes("kirocli:odic:token")) {
+        return {
+          ok: true,
+          stdout: JSON.stringify({
+            access_token: "access",
+            refresh_token: "refresh",
+            expires_at: "2026-07-07T10:00:00Z",
+          }),
+          stderr: "",
+        }
+      }
+      return { ok: false, stdout: "", stderr: "missing" }
+    }
+
+    const credential = await readKiroCliSessionCredential({ dbPath: "/tmp" }, runner)
+
+    expect(credential).toEqual({
+      accessToken: "access",
+      refreshToken: "refresh",
+      expiresAt: "2026-07-07T10:00:00Z",
+      profileArn: "arn:aws:codewhisperer:us-east-1:123456789012:profile/test",
+      region: "us-east-1",
+      source: "kirocli:odic:token",
+    })
   })
 })
 

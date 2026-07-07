@@ -5,7 +5,16 @@ export type { AcpConnection, AcpNotificationHandler, AcpStdioClientOptions, Json
 export { acpPermissionResponse, KiroAcpTransport } from "./acp-transport.js"
 export type { AcpSessionClient, KiroAcpTransportOptions } from "./acp-transport.js"
 export { createKiroPlugin, effectiveBackend, KiroPlugin } from "./plugin.js"
-export { detectAuth, extractKiroLoginUrl, KIRO_LOGIN_URL, redacted, resolveApiKey, startKiroCliLogin } from "./auth.js"
+export {
+  detectAuth,
+  extractKiroLoginUrl,
+  KIRO_LOGIN_URL,
+  readKiroCliSessionCredential,
+  redacted,
+  regionFromProfileArn,
+  resolveApiKey,
+  startKiroCliLogin,
+} from "./auth.js"
 export { cliChatArgs, KiroCliChatTransport, promptForCli } from "./cli-transport.js"
 export { createKiroFetch } from "./fetch-adapter.js"
 export { loadOptions } from "./config.js"
@@ -19,6 +28,8 @@ export {
   toGenerateAssistantResponseInput,
   usageFromMetadataEvent,
 } from "./kiro-transport.js"
+export { KiroRestTransport, toKiroRestPayload } from "./kiro-rest-transport.js"
+export type { KiroRestTransportOptions } from "./kiro-rest-transport.js"
 export { ModelCache } from "./model-cache.js"
 export { discoverModelsFromCommand, parseDiscoveredModels, refreshModelCacheFromCommand } from "./model-discovery.js"
 export { ModelResolutionError, ModelResolver, normalizeModelName } from "./model-resolver.js"
