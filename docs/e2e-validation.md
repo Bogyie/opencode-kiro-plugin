@@ -152,7 +152,7 @@ Before publishing, verify that new model ids can be used without a code release:
         "modelAliases": {
           "new-model": "new-model-id"
         },
-        "modelDiscoveryCommand": ["kiro-cli", "models", "--json"]
+        "modelDiscoveryCommand": ["kiro-cli", "chat", "--list-models", "--format", "json"]
       }
     ]
   ]
@@ -161,7 +161,7 @@ Before publishing, verify that new model ids can be used without a code release:
 
 Checks:
 
-- If your installed `kiro-cli` has a model-list command, set `modelDiscoveryCommand` to that command and confirm discovered models appear in provider metadata.
+- Confirm `kiro-cli chat --list-models --format json` succeeds and discovered models appear in provider metadata.
 - The model appears in OpenCode provider metadata.
 - The alias resolves to the configured id.
 - Unknown models still pass through when `disableModelPassThrough` is false.

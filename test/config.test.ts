@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { DEFAULT_MAX_ATTEMPTS, DEFAULT_MODEL_CACHE_TTL_SECONDS, loadOptions } from "../src/config.js"
+import { DEFAULT_MAX_ATTEMPTS, DEFAULT_MODEL_CACHE_TTL_SECONDS, DEFAULT_MODEL_DISCOVERY_COMMAND, loadOptions } from "../src/config.js"
 
 describe("loadOptions", () => {
   test("loads defaults from empty input", () => {
@@ -8,7 +8,7 @@ describe("loadOptions", () => {
       region: "us-east-1",
       backend: "auto",
       modelDiscovery: "auto",
-      modelDiscoveryCommand: [],
+      modelDiscoveryCommand: DEFAULT_MODEL_DISCOVERY_COMMAND,
       modelCacheTtlSeconds: DEFAULT_MODEL_CACHE_TTL_SECONDS,
       maxAttempts: DEFAULT_MAX_ATTEMPTS,
       modelAliases: {},
@@ -28,7 +28,7 @@ describe("loadOptions", () => {
         endpoint: " https://custom.example ",
         backend: "fetch",
         modelDiscovery: "off",
-        modelDiscoveryCommand: ["kiro-cli", "models", "--json", 123],
+        modelDiscoveryCommand: ["kiro-cli", "chat", "--list-models", "--format", "json", 123],
         modelCacheTtlSeconds: 30,
         requestTimeoutMs: 1000,
         maxAttempts: 5,
@@ -51,7 +51,7 @@ describe("loadOptions", () => {
       endpoint: "https://custom.example",
       backend: "fetch",
       modelDiscovery: "off",
-      modelDiscoveryCommand: ["kiro-cli", "models", "--json"],
+      modelDiscoveryCommand: ["kiro-cli", "chat", "--list-models", "--format", "json"],
       modelCacheTtlSeconds: 30,
       requestTimeoutMs: 1000,
       maxAttempts: 5,

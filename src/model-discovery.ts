@@ -11,6 +11,10 @@ function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined
 }
 
+function positiveNumberValue(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined
+}
+
 function fromItem(item: unknown): CachedModelInfo | undefined {
   if (typeof item === "string") {
     const id = normalizeModelName(item)
@@ -19,15 +23,25 @@ function fromItem(item: unknown): CachedModelInfo | undefined {
 
   const object = record(item)
   if (!object) return undefined
-  const id = stringValue(object.id) ?? stringValue(object.modelId) ?? stringValue(object.model) ?? stringValue(object.name)
+  const id =
+    stringValue(object.id) ??
+    stringValue(object.modelId) ??
+    stringValue(object.model_id) ??
+    stringValue(object.model) ??
+    stringValue(object.model_name) ??
+    stringValue(object.name)
   if (!id) return undefined
 
   const normalized = normalizeModelName(id)
   if (!normalized) return undefined
   const name = stringValue(object.name) ?? stringValue(object.displayName) ?? stringValue(object.label)
+  const contextLimit = positiveNumberValue(object.contextLimit) ?? positiveNumberValue(object.context_window_tokens)
+  const outputLimit = positiveNumberValue(object.outputLimit) ?? positiveNumberValue(object.output_limit_tokens)
   return {
     id: normalized,
     ...(name ? { name } : {}),
+    ...(contextLimit ? { contextLimit } : {}),
+    ...(outputLimit ? { outputLimit } : {}),
     raw: item,
   }
 }
@@ -38,14 +52,19 @@ function fromJson(value: unknown): CachedModelInfo[] {
   const object = record(value)
   if (!object) return []
   const items = object.models ?? object.data ?? object.items
-  return Array.isArray(items) ? fromJson(items) : []
+  if (Array.isArray(items)) return fromJson(items)
+
+  const configuredModel = object["chat.defaultModel"] ?? object.defaultModel ?? object.model
+  return configuredModel ? fromJson([configuredModel]) : []
 }
 
 function fromLines(raw: string): CachedModelInfo[] {
   return raw
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .filter((line) => line && !line.includes(" ") && !line.includes("\t"))
+    .map((line) => line.replace(/^\*\s*/, ""))
+    .map((line) => /^\S+/.exec(line)?.[0] ?? "")
+    .filter((line) => line === "auto" || /[.-]/.test(line))
     .map(fromItem)
     .filter((item): item is CachedModelInfo => item !== undefined)
 }

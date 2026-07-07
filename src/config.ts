@@ -24,6 +24,7 @@ export interface KiroPluginOptions {
 
 export const DEFAULT_PROVIDER_ID = "kiro"
 export const DEFAULT_REGION = "us-east-1"
+export const DEFAULT_MODEL_DISCOVERY_COMMAND = ["kiro-cli", "chat", "--list-models", "--format", "json"] as const
 export const DEFAULT_MODEL_CACHE_TTL_SECONDS = 6 * 60 * 60
 export const DEFAULT_MAX_ATTEMPTS = 3
 
@@ -88,6 +89,8 @@ export function loadOptions(raw: unknown = {}): KiroPluginOptions {
   const profileArn = optionalString(input.profileArn)
   const userAgent = optionalString(input.userAgent)
   const agentMode = optionalString(input.agentMode)
+  const modelDiscoveryCommand =
+    "modelDiscoveryCommand" in input ? stringArray(input.modelDiscoveryCommand) : [...DEFAULT_MODEL_DISCOVERY_COMMAND]
 
   return {
     providerID: typeof input.providerID === "string" && input.providerID ? input.providerID : DEFAULT_PROVIDER_ID,
@@ -95,7 +98,7 @@ export function loadOptions(raw: unknown = {}): KiroPluginOptions {
     ...(endpoint ? { endpoint } : {}),
     backend,
     modelDiscovery,
-    modelDiscoveryCommand: stringArray(input.modelDiscoveryCommand),
+    modelDiscoveryCommand,
     modelCacheTtlSeconds: positiveNumber(input.modelCacheTtlSeconds, DEFAULT_MODEL_CACHE_TTL_SECONDS),
     ...(requestTimeoutMs ? { requestTimeoutMs } : {}),
     maxAttempts: positiveInteger(input.maxAttempts, DEFAULT_MAX_ATTEMPTS),

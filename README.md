@@ -74,7 +74,7 @@ Supported values:
 
 ## Model Churn Handling
 
-The resolver intentionally avoids a hard whitelist. Fallback presets are used for OpenCode UI metadata and cache bootstrap only.
+The resolver intentionally avoids a hard whitelist. By default, the plugin reads the current Kiro CLI model list with `kiro-cli chat --list-models --format json`. Bundled presets are only used as UI metadata and as a fallback when discovery is unavailable.
 
 Useful options:
 
@@ -86,13 +86,13 @@ Useful options:
       {
         "modelCacheTtlSeconds": 21600,
         "modelDiscovery": "auto",
-        "modelDiscoveryCommand": ["kiro-cli", "models", "--json"],
+        "modelDiscoveryCommand": ["kiro-cli", "chat", "--list-models", "--format", "json"],
         "modelAliases": {
-          "sonnet": "claude-sonnet-4.6",
-          "opus": "claude-opus-4.6"
+          "sonnet": "claude-sonnet-5",
+          "opus": "claude-opus-4.8"
         },
         "extraModels": {
-          "claude-opus-4-9": {
+          "claude-opus-4.9": {
             "name": "Claude Opus 4.9",
             "limit": { "context": 1000000, "output": 64000 },
             "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] },
@@ -120,11 +120,11 @@ Resolution order:
 6. Hidden/manual model mapping
 7. Optimistic pass-through unless disabled
 
-This keeps new Kiro model ids usable before the package is updated. Use `extraModels` when a new model should appear in OpenCode's model picker immediately. Set `disableModelPassThrough: true` only when you need strict model governance.
+This keeps new Kiro model ids visible before the package is updated. Use `extraModels` only when a new model should appear in OpenCode's model picker but is not yet listed by your installed Kiro CLI. Set `disableModelPassThrough: true` only when you need strict model governance.
 
 The plugin injects `provider.kiro` automatically. You only need to add `provider.kiro.models` yourself when overriding OpenCode model-picker metadata, such as a display name or context limit. Use plugin `modelAliases` for aliases that should resolve one requested model id to another.
 
-`modelDiscoveryCommand` is optional and intentionally not guessed by default because Kiro CLI model-list flags may vary by version. When configured, stdout can be a JSON array, `{ "models": [...] }`, `{ "data": [...] }`, or one model id per line.
+`modelDiscoveryCommand` defaults to `["kiro-cli", "chat", "--list-models", "--format", "json"]`. Set `modelDiscovery` to `"off"` to skip runtime discovery. Discovery stdout can be a JSON array, `{ "models": [...] }`, `{ "data": [...] }`, Kiro CLI list-models JSON, Kiro CLI plain list output, or one model id per line.
 
 ## Troubleshooting
 

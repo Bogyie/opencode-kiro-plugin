@@ -22,31 +22,61 @@ export const FALLBACK_MODELS: Readonly<Record<string, ProviderModelConfig>> = {
     modalities: TEXT_IMAGE_PDF,
     tool_call: true,
   },
+  "claude-fable-5": {
+    name: "Claude Fable 5",
+    limit: { context: 1_000_000, output: 64_000 },
+    modalities: TEXT_IMAGE_PDF,
+    tool_call: true,
+  },
+  "claude-sonnet-5": {
+    name: "Claude Sonnet 5",
+    limit: { context: 1_000_000, output: 64_000 },
+    modalities: TEXT_IMAGE_PDF,
+    tool_call: true,
+  },
   "claude-sonnet-4": {
-    name: "Claude Sonnet 4",
+    name: "Claude Sonnet 4.0",
     limit: { context: 200_000, output: 64_000 },
     modalities: TEXT_IMAGE_PDF,
     tool_call: true,
   },
-  "claude-sonnet-4-5": {
+  "claude-sonnet-4.5": {
     name: "Claude Sonnet 4.5",
     limit: { context: 200_000, output: 64_000 },
     modalities: TEXT_IMAGE_PDF,
     tool_call: true,
   },
-  "claude-sonnet-4-6": {
+  "claude-sonnet-4.6": {
     name: "Claude Sonnet 4.6",
     limit: { context: 1_000_000, output: 64_000 },
     modalities: TEXT_IMAGE_PDF,
     tool_call: true,
   },
-  "claude-opus-4-8": {
+  "claude-opus-4.8": {
     name: "Claude Opus 4.8",
+    limit: { context: 1_000_000, output: 128_000 },
+    modalities: TEXT_IMAGE_PDF,
+    tool_call: true,
+  },
+  "claude-opus-4.7": {
+    name: "Claude Opus 4.7",
     limit: { context: 1_000_000, output: 64_000 },
     modalities: TEXT_IMAGE_PDF,
     tool_call: true,
   },
-  "claude-haiku-4-5": {
+  "claude-opus-4.6": {
+    name: "Claude Opus 4.6",
+    limit: { context: 1_000_000, output: 64_000 },
+    modalities: TEXT_IMAGE_PDF,
+    tool_call: true,
+  },
+  "claude-opus-4.5": {
+    name: "Claude Opus 4.5",
+    limit: { context: 200_000, output: 64_000 },
+    modalities: TEXT_IMAGE_PDF,
+    tool_call: true,
+  },
+  "claude-haiku-4.5": {
     name: "Claude Haiku 4.5",
     limit: { context: 200_000, output: 64_000 },
     modalities: { input: ["text", "image"], output: ["text"] },
@@ -83,4 +113,3 @@ export const FALLBACK_MODELS: Readonly<Record<string, ProviderModelConfig>> = {
     tool_call: true,
   },
 }
-

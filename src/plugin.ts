@@ -33,6 +33,14 @@ function discoveredProviderModels(cache: ModelCache): Record<string, ProviderMod
       model.id,
       {
         name: model.name ?? model.id,
+        ...(model.contextLimit || model.outputLimit
+          ? {
+              limit: {
+                context: model.contextLimit ?? 200_000,
+                output: model.outputLimit ?? 64_000,
+              },
+            }
+          : {}),
       },
     ]),
   )

@@ -11,6 +11,8 @@ const input = {
   $: {},
 } as any
 
+const withoutDiscovery = { modelDiscovery: "off" } as const
+
 describe("Kiro plugin", () => {
   test("maps plugin timeout options to ACP prompt timeout", () => {
     expect(acpTransportOptions({ requestTimeoutMs: 30_000, trustAllTools: true })).toEqual({
@@ -57,7 +59,7 @@ describe("Kiro plugin", () => {
   })
 
   test("injects provider config without replacing user model overrides", async () => {
-    const hooks = await createKiroPlugin()(input, { region: "eu-central-1" })
+    const hooks = await createKiroPlugin()(input, { ...withoutDiscovery, region: "eu-central-1" })
     const config: any = {
       provider: {
         kiro: {
@@ -75,11 +77,12 @@ describe("Kiro plugin", () => {
     expect(config.provider.kiro.npm).toBe("@ai-sdk/openai-compatible")
     expect(config.provider.kiro.api).toBe("https://custom.example")
     expect(config.provider.kiro.models.auto.name).toBe("Custom Auto")
-    expect(config.provider.kiro.models["claude-sonnet-4-6"].limit.context).toBe(1_000_000)
+    expect(config.provider.kiro.models["claude-sonnet-4.6"].limit.context).toBe(1_000_000)
   })
 
   test("injects extra model presets and lets user config override them", async () => {
     const hooks = await createKiroPlugin()(input, {
+      ...withoutDiscovery,
       extraModels: {
         "claude-opus-4-9": {
           name: "Claude Opus 4.9",
@@ -100,11 +103,11 @@ describe("Kiro plugin", () => {
     await hooks.config?.(config)
 
     expect(config.provider.kiro.models["claude-opus-4-9"].name).toBe("User Opus")
-    expect(config.provider.kiro.models["claude-sonnet-4-6"].name).toBe("Claude Sonnet 4.6")
+    expect(config.provider.kiro.models["claude-sonnet-4.6"].name).toBe("Claude Sonnet 4.6")
   })
 
   test("provider hook adds OpenAI-compatible API metadata to models", async () => {
-    const hooks = await createKiroPlugin()(input, { region: "eu-central-1" })
+    const hooks = await createKiroPlugin()(input, { ...withoutDiscovery, region: "eu-central-1" })
     const models = await hooks.provider?.models?.(
       {
         id: "kiro",
@@ -125,6 +128,7 @@ describe("Kiro plugin", () => {
 
   test("provider hook uses custom endpoint for provider API metadata", async () => {
     const hooks = await createKiroPlugin()(input, {
+      ...withoutDiscovery,
       region: "eu-central-1",
       endpoint: "https://custom.example",
     })
@@ -151,7 +155,7 @@ describe("Kiro plugin", () => {
       modelDiscoveryCommand: [
         process.execPath,
         "-e",
-        "console.log(JSON.stringify({models:[{id:'new-model-1',name:'New Model 1'}]}))",
+        "console.log(JSON.stringify({models:[{id:'new-model-1',name:'New Model 1',context_window_tokens:123456}]}))",
       ],
     })
     const models = await hooks.provider?.models?.(
@@ -164,6 +168,10 @@ describe("Kiro plugin", () => {
     )
 
     expect(models?.["new-model-1"]?.name).toBe("New Model 1")
+    expect(models?.["new-model-1"]?.limit).toEqual({
+      context: 123456,
+      output: 64_000,
+    })
     expect(models?.["new-model-1"]?.api).toEqual({
       id: "new-model-1",
       npm: "@ai-sdk/openai-compatible",
@@ -175,7 +183,7 @@ describe("Kiro plugin", () => {
     const original = process.env.KIRO_API_KEY
     process.env.KIRO_API_KEY = "env-key"
     try {
-      const hooks = await createKiroPlugin()(input, undefined)
+      const hooks = await createKiroPlugin()(input, withoutDiscovery)
       const loaded = await hooks.auth?.loader?.(
         async () => {
           throw new Error("not connected")
@@ -194,6 +202,7 @@ describe("Kiro plugin", () => {
 
   test("auth loader can be created with extra models without pass-through", async () => {
     const hooks = await createKiroPlugin()(input, {
+      ...withoutDiscovery,
       backend: "acp",
       disableModelPassThrough: true,
       extraModels: {
@@ -214,7 +223,7 @@ describe("Kiro plugin", () => {
     const original = process.env.KIRO_API_KEY
     delete process.env.KIRO_API_KEY
     try {
-      const hooks = await createKiroPlugin()(input, { backend: "acp" })
+      const hooks = await createKiroPlugin()(input, { ...withoutDiscovery, backend: "acp" })
       const loaded = await hooks.auth?.loader?.(
         async () => {
           throw new Error("not connected")
@@ -230,7 +239,7 @@ describe("Kiro plugin", () => {
   })
 
   test("provides kiro_status diagnostic tool", async () => {
-    const hooks = await createKiroPlugin()(input, { backend: "fetch" })
+    const hooks = await createKiroPlugin()(input, { ...withoutDiscovery, backend: "fetch" })
 
     expect(hooks.tool?.kiro_status).toBeDefined()
     expect(hooks.tool?.kiro_status?.description).toContain("Kiro plugin")

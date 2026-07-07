@@ -13,15 +13,15 @@
         // "agentMode": "vibe",
         "modelCacheTtlSeconds": 21600,
         "modelDiscovery": "auto",
-        "modelDiscoveryCommand": [],
+        "modelDiscoveryCommand": ["kiro-cli", "chat", "--list-models", "--format", "json"],
         "maxAttempts": 3,
         "requestTimeoutMs": 120000,
         "modelAliases": {
-          "sonnet": "claude-sonnet-4.6",
-          "opus": "claude-opus-4.6"
+          "sonnet": "claude-sonnet-5",
+          "opus": "claude-opus-4.8"
         },
         "extraModels": {
-          "claude-opus-4-9": {
+          "claude-opus-4.9": {
             "name": "Claude Opus 4.9",
             "limit": { "context": 1000000, "output": 64000 },
             "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] },
