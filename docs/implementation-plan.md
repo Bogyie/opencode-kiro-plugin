@@ -194,6 +194,7 @@
 - `backend=cli-chat`에서 non-interactive prompt가 동작합니다.
 - `backend=acp` handshake fixture test가 있습니다.
 - `backend=auto`는 fetch 실패 시 무조건 fallback하지 않고 명확한 policy로 동작합니다.
+- `cli-chat`은 공식 `kiro-cli chat --no-interactive` 표면만 사용하므로, CLI가 별도 model flag를 공식화하기 전까지 model selection은 보장하지 않습니다.
 
 ## Milestone 7: Packaging and Documentation
 
@@ -305,4 +306,3 @@ test/
 - ACP transport
 
 첫 PR 완료 후 두 번째 PR에서 auth diagnostics와 text-only custom fetch prototype을 붙입니다.
-

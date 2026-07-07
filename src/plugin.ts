@@ -1,6 +1,7 @@
 import type { Hooks, Plugin } from "@opencode-ai/plugin"
 import { tool } from "@opencode-ai/plugin"
 import { detectAuth, resolveApiKey } from "./auth.js"
+import { KiroCliChatTransport } from "./cli-transport.js"
 import { loadOptions } from "./config.js"
 import { createKiroFetch } from "./fetch-adapter.js"
 import { ModelCache } from "./model-cache.js"
@@ -66,12 +67,17 @@ export function createKiroPlugin(): Plugin {
         ],
         loader: async (auth) => {
           const apiKey = await resolveApiKey(auth)
-          const transport = apiKey
-            ? new CodeWhispererKiroTransport({
-                region: options.region,
-                accessToken: apiKey,
-              })
-            : undefined
+          const transport =
+            options.backend === "cli-chat"
+              ? new KiroCliChatTransport({ trustAllTools: options.trustAllTools })
+              : apiKey
+                ? new CodeWhispererKiroTransport({
+                    region: options.region,
+                    accessToken: apiKey,
+                  })
+                : options.backend === "auto"
+                  ? new KiroCliChatTransport({ trustAllTools: options.trustAllTools })
+                  : undefined
           return {
             apiKey,
             baseURL,

@@ -11,6 +11,7 @@ export interface KiroPluginOptions {
   readonly hiddenModels: Readonly<Record<string, string>>
   readonly disabledModels: ReadonlyArray<string>
   readonly disableModelPassThrough: boolean
+  readonly trustAllTools: boolean
 }
 
 export const DEFAULT_PROVIDER_ID = "kiro"
@@ -58,5 +59,6 @@ export function loadOptions(raw: unknown = {}): KiroPluginOptions {
     hiddenModels: stringRecord(input.hiddenModels),
     disabledModels: stringArray(input.disabledModels),
     disableModelPassThrough: input.disableModelPassThrough === true,
+    trustAllTools: input.trustAllTools === true,
   }
 }

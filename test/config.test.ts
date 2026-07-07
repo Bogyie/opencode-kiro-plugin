@@ -13,6 +13,7 @@ describe("loadOptions", () => {
       hiddenModels: {},
       disabledModels: [],
       disableModelPassThrough: false,
+      trustAllTools: false,
     })
   })
 
@@ -28,6 +29,7 @@ describe("loadOptions", () => {
         hiddenModels: { legacy: "INTERNAL" },
         disabledModels: ["auto", 123],
         disableModelPassThrough: true,
+        trustAllTools: true,
       }),
     ).toMatchObject({
       providerID: "kiro-dev",
@@ -39,7 +41,7 @@ describe("loadOptions", () => {
       hiddenModels: { legacy: "INTERNAL" },
       disabledModels: ["auto"],
       disableModelPassThrough: true,
+      trustAllTools: true,
     })
   })
 })
-

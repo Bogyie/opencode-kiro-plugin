@@ -1,0 +1,55 @@
+import type { CommandRunner } from "./auth.js"
+import { runCommand } from "./auth.js"
+import { KiroPluginError } from "./errors.js"
+import type { KiroTransport } from "./fetch-adapter.js"
+import type { KiroGenerateRequest } from "./request-adapter.js"
+import type { KiroGenerateResponse } from "./response-adapter.js"
+
+export interface CliChatTransportOptions {
+  readonly runner?: CommandRunner
+  readonly trustAllTools?: boolean
+}
+
+export function promptForCli(request: KiroGenerateRequest): string {
+  const parts = [
+    request.system ? `System:\n${request.system}` : "",
+    ...request.history.map((turn) => `${turn.role}:\n${turn.content}`),
+    `user:\n${request.prompt}`,
+  ].filter(Boolean)
+  return parts.join("\n\n")
+}
+
+export function cliChatArgs(request: KiroGenerateRequest, options: Pick<CliChatTransportOptions, "trustAllTools"> = {}): string[] {
+  return [
+    "chat",
+    "--no-interactive",
+    ...(options.trustAllTools ? ["--trust-all-tools"] : []),
+    promptForCli(request),
+  ]
+}
+
+export class KiroCliChatTransport implements KiroTransport {
+  readonly #runner: CommandRunner
+  readonly #trustAllTools: boolean
+
+  constructor(options: CliChatTransportOptions = {}) {
+    this.#runner = options.runner ?? runCommand
+    this.#trustAllTools = options.trustAllTools === true
+  }
+
+  async generate(request: KiroGenerateRequest): Promise<KiroGenerateResponse> {
+    const result = await this.#runner("kiro-cli", cliChatArgs(request, { trustAllTools: this.#trustAllTools }))
+    if (!result.ok) {
+      throw new KiroPluginError(
+        result.stderr.trim() || "kiro-cli chat failed",
+        "KIRO_CLI_FAILED",
+        502,
+      )
+    }
+    return {
+      text: result.stdout.trim(),
+      modelId: request.modelId,
+    }
+  }
+}
+
