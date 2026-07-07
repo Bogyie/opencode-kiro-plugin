@@ -138,6 +138,8 @@ npm run typecheck
 npm run build
 ```
 
+For real Kiro/OpenCode validation, use [docs/e2e-validation.md](docs/e2e-validation.md).
+
 ## License And References
 
 This project is MIT licensed. See [LICENSE](LICENSE).
