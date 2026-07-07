@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import type { ChatResponseStream } from "@aws/codewhisperer-streaming-client"
 import {
+  additionalModelRequestFields,
   CodeWhispererKiroTransport,
   collectAssistantText,
   streamAssistantText,
@@ -28,6 +29,7 @@ const request: KiroGenerateRequest = {
   toolResults: [{ toolUseId: "call-1", toolName: "read_file", content: "file contents" }],
   images: [{ format: "png", bytes: Uint8Array.from([1, 2, 3]) }],
   documents: [{ name: "spec.pdf", format: "pdf", bytes: Uint8Array.from([4, 5]) }],
+  modelOptions: {},
   stream: false,
   metadata: {
     originalModel: "claude-sonnet-4-6",
@@ -78,6 +80,31 @@ describe("toGenerateAssistantResponseInput", () => {
         },
       },
     })
+  })
+
+  test("adds best-effort model request fields", () => {
+    const input = toGenerateAssistantResponseInput({
+      ...request,
+      modelOptions: {
+        temperature: 0.2,
+        maxTokens: 2048,
+        reasoningEffort: "high",
+      },
+    })
+
+    expect(input.additionalModelRequestFields).toEqual({
+      temperature: 0.2,
+      max_tokens: 2048,
+      output_config: {
+        effort: "high",
+      },
+    })
+  })
+})
+
+describe("additionalModelRequestFields", () => {
+  test("returns undefined when no model options are present", () => {
+    expect(additionalModelRequestFields(request)).toBeUndefined()
   })
 })
 

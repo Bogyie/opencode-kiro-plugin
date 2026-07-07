@@ -32,6 +32,18 @@ export type CodeWhispererClientFactory = (options: KiroTransportOptions) => Code
 const DEFAULT_USER_AGENT = "KiroIDE"
 const DEFAULT_AGENT_MODE = "vibe"
 
+export function additionalModelRequestFields(request: KiroGenerateRequest): Record<string, unknown> | undefined {
+  const fields: Record<string, unknown> = {}
+  if (request.modelOptions.temperature !== undefined) fields.temperature = request.modelOptions.temperature
+  if (request.modelOptions.maxTokens !== undefined) fields.max_tokens = request.modelOptions.maxTokens
+  if (request.modelOptions.reasoningEffort) {
+    fields.output_config = {
+      effort: request.modelOptions.reasoningEffort,
+    }
+  }
+  return Object.keys(fields).length > 0 ? fields : undefined
+}
+
 export function createCodeWhispererClient(options: KiroTransportOptions): CodeWhispererClientLike {
   const client = new CodeWhispererStreamingClient({
     region: options.region,
@@ -58,9 +70,11 @@ export function toGenerateAssistantResponseInput(
   options: Pick<KiroTransportOptions, "profileArn" | "agentMode"> = {},
 ): GenerateAssistantResponseCommandInput {
   const content = request.prompt
+  const modelFields = additionalModelRequestFields(request)
   return {
     ...(options.profileArn ? { profileArn: options.profileArn } : {}),
     agentMode: options.agentMode ?? DEFAULT_AGENT_MODE,
+    ...(modelFields ? { additionalModelRequestFields: modelFields } : {}),
     conversationState: {
       chatTriggerType: "MANUAL",
       history: [

@@ -15,6 +15,7 @@ const request: KiroGenerateRequest = {
   toolResults: [],
   images: [],
   documents: [],
+  modelOptions: {},
   stream: false,
   metadata: {
     originalModel: "claude-sonnet-4-6",

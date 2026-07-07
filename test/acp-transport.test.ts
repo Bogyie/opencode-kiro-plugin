@@ -159,6 +159,7 @@ describe("Kiro ACP transport", () => {
       toolResults: [],
       images: [],
       documents: [],
+      modelOptions: {},
       stream: true,
       metadata: {
         originalModel: "claude-sonnet-4-6",

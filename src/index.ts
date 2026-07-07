@@ -11,6 +11,7 @@ export { createKiroFetch } from "./fetch-adapter.js"
 export { loadOptions } from "./config.js"
 export { getKiroCliStatus, getKiroCliVersion } from "./kiro-cli.js"
 export {
+  additionalModelRequestFields,
   CodeWhispererKiroTransport,
   collectAssistantText,
   createCodeWhispererClient,
@@ -22,6 +23,7 @@ export { discoverModelsFromCommand, parseDiscoveredModels, refreshModelCacheFrom
 export { ModelResolutionError, ModelResolver, normalizeModelName } from "./model-resolver.js"
 export { FALLBACK_MODELS } from "./models.js"
 export { toKiroGenerateRequest } from "./request-adapter.js"
+export type { KiroGenerateRequest, KiroModelOptions } from "./request-adapter.js"
 export { toOpenAIChatResponse, toOpenAIChatStreamResponse } from "./response-adapter.js"
 export type { KiroStreamEvent, KiroToolCallChunk } from "./response-adapter.js"
 

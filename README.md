@@ -153,6 +153,8 @@ This keeps new Kiro model ids usable before the package is updated. Use `extraMo
 
 Direct fetch mode uses AWS SDK standard retry behavior. Tune `maxAttempts` and `requestTimeoutMs` if you need stricter failure boundaries in automation. Fetch mode also accepts `endpoint`, `profileArn`, `userAgent`, and `agentMode` for controlled environments. `cli-chat` uses `requestTimeoutMs` for the `kiro-cli chat --no-interactive` child process, and ACP uses it while waiting for `session/prompt` completion and `TurnEnd`.
 
+OpenAI-compatible `temperature`, `max_tokens`, `max_completion_tokens`, `reasoning_effort`, `reasoning.effort`, and `thinking.effort` are preserved for direct fetch mode through Kiro's `additionalModelRequestFields` path on a best-effort basis.
+
 For local checks:
 
 ```sh

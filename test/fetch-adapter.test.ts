@@ -59,6 +59,7 @@ describe("request adapter", () => {
       ],
       images: [],
       documents: [],
+      modelOptions: {},
       stream: false,
       metadata: {
         originalModel: "claude-sonnet-4-6",
@@ -135,6 +136,43 @@ describe("request adapter", () => {
         content: "latest",
       },
     ])
+  })
+
+  test("preserves supported model request options", () => {
+    const converted = toKiroGenerateRequest(
+      {
+        model: "claude-sonnet-4-6",
+        messages: [{ role: "user", content: "Think carefully" }],
+        temperature: 0.2,
+        max_tokens: 1234.8,
+        reasoning_effort: " high ",
+      },
+      resolver(),
+    )
+
+    expect(converted.modelOptions).toEqual({
+      temperature: 0.2,
+      maxTokens: 1234,
+      reasoningEffort: "high",
+    })
+  })
+
+  test("prefers max completion tokens and nested reasoning effort aliases", () => {
+    const converted = toKiroGenerateRequest(
+      {
+        model: "claude-sonnet-4-6",
+        messages: [{ role: "user", content: "Think carefully" }],
+        max_tokens: 100,
+        max_completion_tokens: 200,
+        reasoning: { effort: "medium" },
+      },
+      resolver(),
+    )
+
+    expect(converted.modelOptions).toEqual({
+      maxTokens: 200,
+      reasoningEffort: "medium",
+    })
   })
 })
 

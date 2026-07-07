@@ -26,6 +26,14 @@ export interface OpenAIChatRequest {
   readonly tools?: ReadonlyArray<OpenAITool>
   readonly temperature?: number
   readonly max_tokens?: number
+  readonly max_completion_tokens?: number
+  readonly reasoning_effort?: string
+  readonly reasoning?: {
+    readonly effort?: string
+  }
+  readonly thinking?: {
+    readonly effort?: string
+  }
 }
 
 export interface OpenAITool {
@@ -46,6 +54,7 @@ export interface KiroGenerateRequest {
   readonly toolResults: ReadonlyArray<KiroToolResult>
   readonly images: ReadonlyArray<KiroImageBlock>
   readonly documents: ReadonlyArray<KiroDocumentBlock>
+  readonly modelOptions: KiroModelOptions
   readonly stream: boolean
   readonly metadata: {
     readonly originalModel: string
@@ -53,6 +62,12 @@ export interface KiroGenerateRequest {
     readonly modelSource: string
     readonly hasTools: boolean
   }
+}
+
+export interface KiroModelOptions {
+  readonly temperature?: number
+  readonly maxTokens?: number
+  readonly reasoningEffort?: string
 }
 
 export interface KiroImageBlock {
@@ -228,6 +243,31 @@ function toolResults(messages: ReadonlyArray<OpenAIChatMessage>): KiroToolResult
   return [...results.values()]
 }
 
+function finiteNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined
+}
+
+function positiveInteger(value: unknown): number | undefined {
+  const number = finiteNumber(value)
+  if (number === undefined || number < 1) return undefined
+  return Math.floor(number)
+}
+
+function nonEmptyString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined
+}
+
+function modelOptions(request: OpenAIChatRequest): KiroModelOptions {
+  const temperature = finiteNumber(request.temperature)
+  const maxTokens = positiveInteger(request.max_completion_tokens) ?? positiveInteger(request.max_tokens)
+  const reasoningEffort = nonEmptyString(request.reasoning_effort) ?? nonEmptyString(request.reasoning?.effort) ?? nonEmptyString(request.thinking?.effort)
+  return {
+    ...(temperature !== undefined ? { temperature } : {}),
+    ...(maxTokens !== undefined ? { maxTokens } : {}),
+    ...(reasoningEffort ? { reasoningEffort } : {}),
+  }
+}
+
 export async function readOpenAIRequest(input: RequestInfo | URL, init?: RequestInit): Promise<OpenAIChatRequest> {
   if (init?.body) {
     const raw = typeof init.body === "string" ? init.body : new TextDecoder().decode(init.body as BufferSource)
@@ -268,6 +308,7 @@ export function toKiroGenerateRequest(request: OpenAIChatRequest, resolver: Mode
     toolResults: toolResults(request.messages),
     images: media.images,
     documents: media.documents,
+    modelOptions: modelOptions(request),
     ...(system ? { system } : {}),
     stream: request.stream === true,
     metadata: {
