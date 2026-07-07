@@ -37,7 +37,7 @@ The plugin resolves credentials in this order:
 2. OpenCode auth input for provider `kiro`
 3. `kiro-cli whoami` diagnostics for CLI session visibility
 
-Direct fetch mode requires an API key/token usable by the Kiro/CodeWhisperer client. `cli-chat` mode uses the official `kiro-cli chat --no-interactive` surface and depends on the local Kiro CLI login state.
+Direct fetch mode requires an API key/token usable by the Kiro/CodeWhisperer client. `cli-chat` mode uses the official `kiro-cli chat --no-interactive` surface and depends on the local Kiro CLI login state. `acp` mode uses the official `kiro-cli acp` surface, but is still treated as an explicit backend while its real-world protocol behavior is validated across Kiro CLI versions.
 
 Use the `kiro_status` plugin tool to inspect provider id, backend, region, auth method, and discovered model count. Secrets are redacted in diagnostics.
 
@@ -65,9 +65,9 @@ Configure the backend through plugin options:
 
 Supported values:
 
-- `auto`: use CodeWhisperer fetch transport when an API key is available; otherwise use CLI chat fallback.
+- `auto`: use CodeWhisperer fetch transport when an API key is available; otherwise use streaming `cli-chat` with the local Kiro CLI login.
 - `fetch`: require the direct Kiro/CodeWhisperer fetch path. If no usable auth is available, requests fail with a structured backend/auth error.
-- `cli-chat`: call `kiro-cli chat --no-interactive --model <model>`. This is official and stable, and uses the model selected in OpenCode.
+- `cli-chat`: spawn `kiro-cli chat --no-interactive --model <model>` and stream stdout chunks as they arrive. Chunk granularity is controlled by Kiro CLI.
 - `acp`: launch `kiro-cli acp`, initialize a session, optionally set the requested model, send the prompt, and collect `AgentMessageChunk` notifications until `TurnEnd`.
 
 `trustAllTools` affects both `cli-chat` and ACP permission handling. In ACP mode, permission requests are rejected by default and allowed only when `trustAllTools: true`.

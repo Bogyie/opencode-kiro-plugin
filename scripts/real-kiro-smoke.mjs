@@ -1,4 +1,4 @@
-import { createKiroFetch, createKiroPlugin, KiroCliChatTransport, ModelCache, ModelResolver, parseDiscoveredModels } from "../dist/index.js"
+import { createKiroPlugin, parseDiscoveredModels } from "../dist/index.js"
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 
@@ -34,6 +34,22 @@ function assistantTextFromSse(body) {
     .join("")
 }
 
+async function readSse(response) {
+  const reader = response.body?.getReader()
+  assert(reader, "stream response did not expose a readable body")
+  const decoder = new TextDecoder()
+  let body = ""
+  let chunks = 0
+  while (true) {
+    const item = await reader.read()
+    if (item.done) break
+    chunks += 1
+    body += decoder.decode(item.value, { stream: true })
+  }
+  body += decoder.decode()
+  return { body, chunks }
+}
+
 async function main() {
   const version = await run("kiro-cli", ["--version"])
   assert(version.ok, `kiro-cli --version failed: ${version.stderr || version.error}`)
@@ -57,7 +73,7 @@ async function main() {
       $: {},
     },
     {
-      backend: "cli-chat",
+      backend: "auto",
       modelDiscoveryCommand: ["kiro-cli", "chat", "--list-models", "--format", "json"],
       requestTimeoutMs: 120_000,
     },
@@ -94,41 +110,24 @@ async function main() {
   assert(localHttpText.includes("4"), `local HTTP response did not answer the arithmetic prompt: ${localHttpText}`)
   console.log(`local HTTP assistant response: ${localHttpText}`)
 
-  const cache = new ModelCache(60)
-  cache.update(models)
-  const adapterFetch = createKiroFetch({
-    resolver: new ModelResolver({ cache }),
-    transport: new KiroCliChatTransport({ requestTimeoutMs: 120_000 }),
-  })
-
-  const nonStreaming = await adapterFetch("https://q.us-east-1.amazonaws.com/v1/chat/completions", {
+  const streaming = await globalThis.fetch(`${localApi}/chat/completions`, {
     method: "POST",
-    body: JSON.stringify({
-      model: selectedModel,
-      messages: [{ role: "user", content: "Answer in one short Korean sentence: what is 2+2?" }],
-    }),
-  })
-  const nonStreamingJson = await nonStreaming.json()
-  assert(nonStreaming.status === 200, `non-stream response failed: ${JSON.stringify(nonStreamingJson)}`)
-  const nonStreamingText = nonStreamingJson.choices?.[0]?.message?.content ?? ""
-  assert(nonStreamingText.trim(), "non-stream response did not contain assistant content")
-  assert(nonStreamingText.includes("4"), `non-stream response did not answer the arithmetic prompt: ${nonStreamingText}`)
-  console.log(`non-stream assistant response: ${nonStreamingText}`)
-
-  const streaming = await adapterFetch("https://q.us-east-1.amazonaws.com/v1/chat/completions", {
-    method: "POST",
+    headers: {
+      authorization: "Bearer kiro-plugin-local-transport",
+      "content-type": "application/json",
+    },
     body: JSON.stringify({
       model: selectedModel,
       stream: true,
       messages: [{ role: "user", content: "Answer in one short sentence containing the number 4: what is 2+2?" }],
     }),
   })
-  const streamingBody = await streaming.text()
+  const { body: streamingBody, chunks: streamingChunks } = await readSse(streaming)
   assert(streaming.status === 200, `stream response failed: ${streamingBody}`)
   const streamingText = assistantTextFromSse(streamingBody)
   assert(streamingText.trim(), "stream response did not reconstruct assistant content")
   assert(streamingText.includes("4"), `stream response did not answer the arithmetic prompt: ${streamingText}`)
-  console.log(`stream assistant response: ${streamingText}`)
+  console.log(`stream assistant response (${streamingChunks} HTTP body chunks): ${streamingText}`)
   await plugin.dispose?.()
 }
 

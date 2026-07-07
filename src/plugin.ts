@@ -16,6 +16,7 @@ import type { KiroTransportOptions } from "./kiro-transport.js"
 import type { ProviderModelConfig } from "./models.js"
 
 type MutableConfig = Record<string, any>
+type EffectiveBackend = "fetch" | "cli-chat" | "acp" | "none"
 
 function discoveredProviderModels(cache: ModelCache): Record<string, ProviderModelConfig> {
   return Object.fromEntries(
@@ -73,23 +74,28 @@ function bearerToken(init: RequestInit | undefined): string | undefined {
   return match?.[1] || undefined
 }
 
-function localTransport(options: KiroPluginOptions, accessToken?: string): KiroTransport | undefined {
-  if (options.backend === "acp") return new KiroAcpTransport(acpTransportOptions(options))
-  if (options.backend === "cli-chat") {
-    return new KiroCliChatTransport({
-      trustAllTools: options.trustAllTools,
-      ...(options.requestTimeoutMs ? { requestTimeoutMs: options.requestTimeoutMs } : {}),
-    })
-  }
+export function effectiveBackend(options: Pick<KiroPluginOptions, "backend">, accessToken?: string): EffectiveBackend {
   const apiKey = accessToken || process.env.KIRO_API_KEY
-  if (apiKey && apiKey !== "kiro-plugin-local-transport") {
-    return new CodeWhispererKiroTransport(fetchTransportOptions(options, apiKey))
-  }
-  if (options.backend === "auto") {
+  if (options.backend === "acp") return "acp"
+  if (options.backend === "cli-chat") return "cli-chat"
+  if (options.backend === "fetch") return apiKey && apiKey !== "kiro-plugin-local-transport" ? "fetch" : "none"
+  if (apiKey && apiKey !== "kiro-plugin-local-transport") return "fetch"
+  return "cli-chat"
+}
+
+function localTransport(options: KiroPluginOptions, accessToken?: string): KiroTransport | undefined {
+  const backend = effectiveBackend(options, accessToken)
+  if (backend === "acp") return new KiroAcpTransport(acpTransportOptions(options))
+  if (backend === "cli-chat") {
     return new KiroCliChatTransport({
       trustAllTools: options.trustAllTools,
       ...(options.requestTimeoutMs ? { requestTimeoutMs: options.requestTimeoutMs } : {}),
     })
+  }
+  if (backend === "fetch") {
+    const apiKey = accessToken || process.env.KIRO_API_KEY
+    if (!apiKey || apiKey === "kiro-plugin-local-transport") return undefined
+    return new CodeWhispererKiroTransport(fetchTransportOptions(options, apiKey))
   }
   return undefined
 }
@@ -236,6 +242,7 @@ export function createKiroPlugin(): Plugin {
               output: [
                 `provider: ${options.providerID}`,
                 `backend: ${options.backend}`,
+                `effective backend: ${effectiveBackend(options)}`,
                 `region: ${auth.region}`,
                 `auth: ${auth.method}`,
                 `authenticated: ${auth.authenticated ? "yes" : "no"}`,
@@ -245,6 +252,7 @@ export function createKiroPlugin(): Plugin {
               metadata: {
                 providerID: options.providerID,
                 backend: options.backend,
+                effectiveBackend: effectiveBackend(options),
                 region: auth.region,
                 authMethod: auth.method,
                 authenticated: auth.authenticated,

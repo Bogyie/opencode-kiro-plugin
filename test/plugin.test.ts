@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { acpTransportOptions, createKiroPlugin, fetchTransportOptions } from "../src/plugin.js"
+import { acpTransportOptions, createKiroPlugin, effectiveBackend, fetchTransportOptions } from "../src/plugin.js"
 
 const input = {
   client: {},
@@ -14,6 +14,21 @@ const input = {
 const withoutDiscovery = { modelDiscovery: "off" } as const
 
 describe("Kiro plugin", () => {
+  test("selects streaming cli-chat as the auto fallback without direct fetch auth", () => {
+    const original = process.env.KIRO_API_KEY
+    delete process.env.KIRO_API_KEY
+    try {
+      expect(effectiveBackend({ backend: "auto" })).toBe("cli-chat")
+      expect(effectiveBackend({ backend: "auto" }, "kiro-plugin-local-transport")).toBe("cli-chat")
+      expect(effectiveBackend({ backend: "auto" }, "token")).toBe("fetch")
+      expect(effectiveBackend({ backend: "fetch" })).toBe("none")
+      expect(effectiveBackend({ backend: "cli-chat" })).toBe("cli-chat")
+    } finally {
+      if (original === undefined) delete process.env.KIRO_API_KEY
+      else process.env.KIRO_API_KEY = original
+    }
+  })
+
   test("maps plugin timeout options to ACP prompt timeout", () => {
     expect(acpTransportOptions({ requestTimeoutMs: 30_000, trustAllTools: true })).toEqual({
       promptTimeoutMs: 30_000,

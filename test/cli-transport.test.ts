@@ -1,6 +1,15 @@
 import { describe, expect, test } from "bun:test"
+import { EventEmitter } from "node:events"
+import { PassThrough } from "node:stream"
+import type { ChildProcess } from "node:child_process"
 import type { CommandRunner } from "../src/auth.js"
-import { cliChatArgs, KiroCliChatTransport, promptForCli, sanitizeCliChatOutput } from "../src/cli-transport.js"
+import {
+  cliChatArgs,
+  KiroCliChatTransport,
+  promptForCli,
+  sanitizeCliChatOutput,
+  sanitizeCliChatStreamingOutput,
+} from "../src/cli-transport.js"
 import type { KiroGenerateRequest } from "../src/request-adapter.js"
 
 const request: KiroGenerateRequest = {
@@ -52,6 +61,11 @@ describe("CLI prompt helpers", () => {
     expect(sanitizeCliChatOutput("\u001b[m> \u001b[0mHello! Nice to meet you.\n\n Credits: 0.14 - Time: 3s\n")).toBe(
       "Hello! Nice to meet you.",
     )
+  })
+
+  test("sanitizes partial streaming CLI output without trimming content chunks", () => {
+    expect(sanitizeCliChatStreamingOutput("\u001b[m> \u001b[0m2+2 ")).toBe("2+2 ")
+    expect(sanitizeCliChatStreamingOutput("\u001b[m> \u001b[0m2+2 equals \n ▸ Credits: 0.05\n")).toBe("2+2 equals \n")
   })
 })
 
@@ -108,5 +122,51 @@ describe("KiroCliChatTransport", () => {
       expect((error as { code?: string; status?: number }).code).toBe("KIRO_EMPTY_RESPONSE")
       expect((error as { code?: string; status?: number }).status).toBe(502)
     }
+  })
+
+  test("streams stdout chunks from kiro-cli without waiting for process exit", async () => {
+    const calls: unknown[] = []
+    const stdout = new PassThrough()
+    const stderr = new PassThrough()
+    const child = new EventEmitter() as EventEmitter & {
+      stdout: PassThrough
+      stderr: PassThrough
+      killed: boolean
+      exitCode: number | null
+      kill(): boolean
+    }
+    child.stdout = stdout
+    child.stderr = stderr
+    child.killed = false
+    child.exitCode = null
+    child.kill = () => {
+      child.killed = true
+      child.exitCode = 0
+      child.emit("exit", null, "SIGTERM")
+      return true
+    }
+    const transport = new KiroCliChatTransport({
+      spawner: (command, args) => {
+        calls.push({ command, args })
+        queueMicrotask(() => {
+          stdout.write("\u001b[m> \u001b[0m2+2 ")
+          stdout.write("equals ")
+          stdout.write("4.")
+          child.exitCode = 0
+          child.emit("exit", 0, null)
+        })
+        return child as unknown as ChildProcess
+      },
+    })
+
+    const chunks = []
+    for await (const chunk of transport.stream(request)) chunks.push(chunk)
+
+    expect(calls).toEqual([{ command: "kiro-cli", args: cliChatArgs(request) }])
+    expect(chunks).toEqual([
+      { type: "text", text: "2+2 ", modelId: "claude-sonnet-4.6" },
+      { type: "text", text: "equals ", modelId: "claude-sonnet-4.6" },
+      { type: "text", text: "4.", modelId: "claude-sonnet-4.6" },
+    ])
   })
 })
