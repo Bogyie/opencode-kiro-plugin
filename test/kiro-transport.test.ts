@@ -108,7 +108,28 @@ describe("streamAssistantText", () => {
       chunks.push(chunk)
     }
 
-    expect(chunks).toEqual([{ text: "a", modelId: "claude-sonnet-4.6" }, { text: "b" }])
+    expect(chunks).toEqual([{ type: "text", text: "a", modelId: "claude-sonnet-4.6" }, { type: "text", text: "b" }])
+  })
+
+  test("accumulates Kiro tool-use input chunks", async () => {
+    const chunks = []
+    for await (const chunk of streamAssistantText(
+      events([
+        { toolUseEvent: { toolUseId: "call-1", name: "read_file", input: '{"path"', stop: false } },
+        { toolUseEvent: { toolUseId: "call-1", name: "read_file", input: ':"README.md"}', stop: true } },
+      ]),
+    )) {
+      chunks.push(chunk)
+    }
+
+    expect(chunks).toEqual([
+      {
+        type: "tool_call",
+        id: "call-1",
+        name: "read_file",
+        arguments: '{"path":"README.md"}',
+      },
+    ])
   })
 })
 
@@ -172,6 +193,6 @@ describe("CodeWhispererKiroTransport", () => {
     const chunks = []
     for await (const chunk of transport.stream(request)) chunks.push(chunk)
 
-    expect(chunks).toEqual([{ text: "a", modelId: "claude-sonnet-4.6" }, { text: "b" }])
+    expect(chunks).toEqual([{ type: "text", text: "a", modelId: "claude-sonnet-4.6" }, { type: "text", text: "b" }])
   })
 })

@@ -18,6 +18,7 @@ export { ModelResolutionError, ModelResolver, normalizeModelName } from "./model
 export { FALLBACK_MODELS } from "./models.js"
 export { toKiroGenerateRequest } from "./request-adapter.js"
 export { toOpenAIChatResponse, toOpenAIChatStreamResponse } from "./response-adapter.js"
+export type { KiroStreamEvent, KiroToolCallChunk } from "./response-adapter.js"
 
 export default {
   id: "kiro",

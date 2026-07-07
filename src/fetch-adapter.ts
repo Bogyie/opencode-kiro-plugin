@@ -1,11 +1,11 @@
 import { errorResponse, UnsupportedBackendError } from "./errors.js"
 import { readOpenAIRequest, toKiroGenerateRequest, type KiroGenerateRequest } from "./request-adapter.js"
-import { toOpenAIChatResponse, toOpenAIChatStreamResponse, type KiroGenerateResponse, type KiroStreamChunk } from "./response-adapter.js"
+import { toOpenAIChatResponse, toOpenAIChatStreamResponse, type KiroGenerateResponse, type KiroStreamEvent } from "./response-adapter.js"
 import type { ModelResolver } from "./model-resolver.js"
 
 export interface KiroTransport {
   generate(request: KiroGenerateRequest): Promise<KiroGenerateResponse>
-  stream?(request: KiroGenerateRequest): AsyncIterable<KiroStreamChunk>
+  stream?(request: KiroGenerateRequest): AsyncIterable<KiroStreamEvent>
 }
 
 export interface KiroFetchOptions {

@@ -114,8 +114,8 @@ describe("createKiroFetch", () => {
           throw new Error("generate should not be called for streaming")
         },
         async *stream() {
-          yield { text: "hel", modelId: "claude-sonnet-4.6" }
-          yield { text: "lo" }
+          yield { type: "text" as const, text: "hel", modelId: "claude-sonnet-4.6" }
+          yield { type: "text" as const, text: "lo" }
         },
       },
     })
@@ -130,6 +130,36 @@ describe("createKiroFetch", () => {
     expect(body).toContain('"object":"chat.completion.chunk"')
     expect(body).toContain('"content":"hel"')
     expect(body).toContain("data: [DONE]")
+  })
+
+  test("streams OpenAI-compatible tool-call deltas", async () => {
+    const fetch = createKiroFetch({
+      resolver: resolver(),
+      transport: {
+        async generate() {
+          throw new Error("generate should not be called for streaming")
+        },
+        async *stream() {
+          yield {
+            type: "tool_call" as const,
+            id: "call-1",
+            name: "read_file",
+            arguments: '{"path":"README.md"}',
+          }
+        },
+      },
+    })
+
+    const response = await fetch("https://q.us-east-1.amazonaws.com/chat/completions", {
+      method: "POST",
+      body: JSON.stringify({ ...request, stream: true }),
+    })
+    const body = await response.text()
+
+    expect(body).toContain('"tool_calls"')
+    expect(body).toContain('"id":"call-1"')
+    expect(body).toContain('"name":"read_file"')
+    expect(body).toContain('\\"README.md\\"')
   })
 
   test("returns structured error when transport is not configured", async () => {

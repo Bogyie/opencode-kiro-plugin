@@ -8,7 +8,7 @@ import {
 import type { Command } from "@smithy/smithy-client"
 import type { KiroTransport } from "./fetch-adapter.js"
 import type { KiroGenerateRequest } from "./request-adapter.js"
-import type { KiroGenerateResponse, KiroStreamChunk } from "./response-adapter.js"
+import type { KiroGenerateResponse, KiroStreamChunk, KiroStreamEvent } from "./response-adapter.js"
 
 export interface KiroTransportOptions {
   readonly region: string
@@ -148,14 +148,32 @@ export async function collectAssistantText(
 
 export async function* streamAssistantText(
   stream: AsyncIterable<ChatResponseStream> | undefined,
-): AsyncIterable<KiroStreamChunk> {
+): AsyncIterable<KiroStreamEvent> {
   if (!stream) return
 
+  const toolInputs = new Map<string, { name: string; input: string }>()
   for await (const event of stream) {
     if (event.assistantResponseEvent?.content) {
       yield {
+        type: "text",
         text: event.assistantResponseEvent.content,
         ...(event.assistantResponseEvent.modelId ? { modelId: event.assistantResponseEvent.modelId } : {}),
+      }
+    }
+    if (event.toolUseEvent?.toolUseId && event.toolUseEvent.name) {
+      const id = event.toolUseEvent.toolUseId
+      const current = toolInputs.get(id) ?? { name: event.toolUseEvent.name, input: "" }
+      current.input += event.toolUseEvent.input ?? ""
+      current.name = event.toolUseEvent.name
+      toolInputs.set(id, current)
+      if (event.toolUseEvent.stop) {
+        yield {
+          type: "tool_call",
+          id,
+          name: current.name,
+          arguments: current.input,
+        }
+        toolInputs.delete(id)
       }
     }
     if (event.error) {
@@ -164,10 +182,11 @@ export async function* streamAssistantText(
   }
 }
 
-async function collectChunks(chunks: AsyncIterable<KiroStreamChunk>, fallbackModelId: string): Promise<KiroGenerateResponse> {
+async function collectChunks(chunks: AsyncIterable<KiroStreamEvent>, fallbackModelId: string): Promise<KiroGenerateResponse> {
   let text = ""
   let modelId: string | undefined
   for await (const chunk of chunks) {
+    if (chunk.type === "tool_call") continue
     text += chunk.text
     modelId = chunk.modelId ?? modelId
   }
@@ -190,7 +209,7 @@ export class CodeWhispererKiroTransport implements KiroTransport {
     return collectChunks(this.stream(request), request.modelId)
   }
 
-  async *stream(request: KiroGenerateRequest): AsyncIterable<KiroStreamChunk> {
+  async *stream(request: KiroGenerateRequest): AsyncIterable<KiroStreamEvent> {
     const input = toGenerateAssistantResponseInput(request, this.#options)
     const output = await this.#client.send(new GenerateAssistantResponseCommand(input))
     yield* streamAssistantText(output.generateAssistantResponseResponse)

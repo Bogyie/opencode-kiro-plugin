@@ -8,9 +8,20 @@ export interface KiroGenerateResponse {
 }
 
 export interface KiroStreamChunk {
+  readonly type?: "text"
   readonly text: string
   readonly modelId?: string
 }
+
+export interface KiroToolCallChunk {
+  readonly type: "tool_call"
+  readonly id: string
+  readonly name: string
+  readonly arguments: string
+  readonly modelId?: string
+}
+
+export type KiroStreamEvent = KiroStreamChunk | KiroToolCallChunk
 
 export function toOpenAIChatResponse(response: KiroGenerateResponse, model: string): Response {
   return Response.json({
@@ -40,12 +51,28 @@ function sse(data: unknown): string {
   return `data: ${JSON.stringify(data)}\n\n`
 }
 
-export function toOpenAIChatStreamResponse(chunks: AsyncIterable<KiroStreamChunk>, model: string): Response {
+export function toOpenAIChatStreamResponse(chunks: AsyncIterable<KiroStreamEvent>, model: string): Response {
   const encoder = new TextEncoder()
   const body = new ReadableStream<Uint8Array>({
     async start(controller) {
       try {
         for await (const chunk of chunks) {
+          const delta =
+            chunk.type === "tool_call"
+              ? {
+                  tool_calls: [
+                    {
+                      index: 0,
+                      id: chunk.id,
+                      type: "function",
+                      function: {
+                        name: chunk.name,
+                        arguments: chunk.arguments,
+                      },
+                    },
+                  ],
+                }
+              : { content: chunk.text }
           controller.enqueue(
             encoder.encode(
               sse({
@@ -56,7 +83,7 @@ export function toOpenAIChatStreamResponse(chunks: AsyncIterable<KiroStreamChunk
                 choices: [
                   {
                     index: 0,
-                    delta: { content: chunk.text },
+                    delta,
                     finish_reason: null,
                   },
                 ],
