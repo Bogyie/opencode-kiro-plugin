@@ -4,6 +4,7 @@ import { PassThrough } from "node:stream"
 import type { ChildProcess } from "node:child_process"
 import {
   detectAuth,
+  extractKiroLoginCode,
   extractKiroLoginUrl,
   KIRO_LOGIN_URL,
   readKiroCliSessionCredential,
@@ -86,6 +87,12 @@ describe("auth diagnostics", () => {
     expect(extractKiroLoginUrl("no url yet")).toBe(KIRO_LOGIN_URL)
   })
 
+  test("extracts Kiro login device code from cli output", () => {
+    expect(extractKiroLoginCode("enter ABCD-EFGH to continue")).toBe("ABCD-EFGH")
+    expect(extractKiroLoginCode("enter ABCDEFGH to continue")).toBe("ABCDEFGH")
+    expect(extractKiroLoginCode("no code")).toBeUndefined()
+  })
+
   test("starts Kiro CLI device login and waits for whoami success", async () => {
     const stdout = new PassThrough()
     const stderr = new PassThrough()
@@ -102,11 +109,14 @@ describe("auth diagnostics", () => {
       queueMicrotask(() => stdout.write("Open https://example.com/device and enter ABCD-EFGH"))
       return child as unknown as ChildProcess
     })
+    const prompted = await session.waitForPrompt(1000)
     const authenticated = await session.waitForAuth(async () => ({ ok: true, stdout: "dev@example.com", stderr: "" }))
 
     expect(calls).toEqual([{ command: "kiro-cli", args: ["login", "--use-device-flow"] }])
+    expect(prompted).toBe(true)
     expect(session.url).toBe("https://example.com/device")
-    expect(session.instructions).toContain("ABCD-EFGH")
+    expect(session.code).toBe("ABCD-EFGH")
+    expect(session.instructions).toBe("Enter code: ABCD-EFGH")
     expect(authenticated).toBe(true)
   })
 

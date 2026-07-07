@@ -372,7 +372,11 @@ export class KiroRestTransport implements KiroTransport {
     const session = this.#options.accessToken ? undefined : await this.#credentialProvider()
     const accessToken = this.#options.accessToken ?? session?.accessToken
     if (!accessToken) {
-      throw new KiroPluginError("No Kiro API token or Kiro CLI session token found. Run Kiro login and try again.", "KIRO_AUTH_ERROR", 401)
+      throw new KiroPluginError(
+        "No Kiro API token or Kiro CLI session token found. Connect Kiro from OpenCode's provider connector or run `kiro-cli login`.",
+        "KIRO_AUTH_ERROR",
+        401,
+      )
     }
     const profileArn = this.#options.profileArn ?? session?.profileArn
     return {

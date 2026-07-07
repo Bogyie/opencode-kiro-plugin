@@ -52,7 +52,9 @@ export interface KiroCliSessionCredentialOptions {
 
 export interface KiroLoginSession {
   readonly url: string
+  readonly code: string | undefined
   readonly instructions: string
+  waitForPrompt(timeoutMs?: number): Promise<boolean>
   waitForAuth(runner?: CommandRunner): Promise<boolean>
 }
 
@@ -166,6 +168,10 @@ export function extractKiroLoginUrl(output: string): string {
   return firstUrl(output) ?? KIRO_LOGIN_URL
 }
 
+export function extractKiroLoginCode(output: string): string | undefined {
+  return /\b[A-Z0-9]{4}-[A-Z0-9]{4}\b/.exec(output)?.[0] ?? /\b[A-Z0-9]{8,}\b/.exec(output)?.[0]
+}
+
 export function startKiroCliLogin(spawner: ProcessSpawner = (command, args) => spawn(command, [...args], { stdio: ["ignore", "pipe", "pipe"] })): KiroLoginSession {
   const child = spawner("kiro-cli", ["login", "--use-device-flow"])
   let output = ""
@@ -187,15 +193,22 @@ export function startKiroCliLogin(spawner: ProcessSpawner = (command, args) => s
     get url() {
       return extractKiroLoginUrl(output)
     },
+    get code() {
+      return extractKiroLoginCode(output)
+    },
     get instructions() {
-      const url = extractKiroLoginUrl(output)
-      const code = /\b[A-Z0-9]{4}-[A-Z0-9]{4}\b/.exec(output)?.[0] ?? /\b[A-Z0-9]{8,}\b/.exec(output)?.[0]
-      return [
-        "Complete Kiro CLI login in the browser.",
-        `URL: ${url}`,
-        ...(code ? [`Code: ${code}`] : []),
-        "The plugin will continue after `kiro-cli whoami` succeeds.",
-      ].join("\n")
+      const code = extractKiroLoginCode(output)
+      return code ? `Enter code: ${code}` : "Complete Kiro CLI login in your browser. This window will close automatically."
+    },
+    async waitForPrompt(timeoutMs = 15_000): Promise<boolean> {
+      const deadline = Date.now() + timeoutMs
+      while (Date.now() < deadline) {
+        if (extractKiroLoginCode(output)) return true
+        if (firstUrl(output)) return true
+        if (exited && exitCode !== 0) return false
+        await delay(100)
+      }
+      return Boolean(extractKiroLoginCode(output) || firstUrl(output))
     },
     async waitForAuth(runner: CommandRunner = runCommand): Promise<boolean> {
       const deadline = Date.now() + 10 * 60 * 1000
@@ -221,8 +234,14 @@ export function startKiroCliLoginOnce(
     get url() {
       return session.url
     },
+    get code() {
+      return session.code
+    },
     get instructions() {
       return session.instructions
+    },
+    waitForPrompt(timeoutMs?: number): Promise<boolean> {
+      return session.waitForPrompt(timeoutMs)
     },
     async waitForAuth(runner?: CommandRunner): Promise<boolean> {
       try {

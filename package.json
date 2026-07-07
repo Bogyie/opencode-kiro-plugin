@@ -1,6 +1,6 @@
 {
   "name": "@bogyie/opencode-kiro-plugin",
-  "version": "0.2.12",
+  "version": "0.2.13",
   "description": "OpenCode plugin for using Kiro as a provider adapter",
   "type": "module",
   "main": "dist/index.js",

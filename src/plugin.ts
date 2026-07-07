@@ -206,13 +206,24 @@ export function createKiroPlugin(): Plugin {
             label: "Kiro CLI login",
             authorize: async () => {
               const session = startKiroCliLoginOnce()
+              await session.waitForPrompt()
               return {
                 url: session.url,
                 instructions: session.instructions,
                 method: "auto",
                 callback: async () => {
                   const authenticated = await session.waitForAuth()
-                  return authenticated ? { type: "success", key: "kiro-plugin-local-transport" } : { type: "failed" }
+                  if (!authenticated) return { type: "failed" }
+                  const diagnostics = await detectAuth().catch(() => undefined)
+                  return {
+                    type: "success",
+                    key: "kiro-plugin-local-transport",
+                    metadata: {
+                      source: "kiro-cli",
+                      ...(diagnostics?.account ? { account: diagnostics.account } : {}),
+                      ...(diagnostics?.region ? { region: diagnostics.region } : {}),
+                    },
+                  }
                 },
               }
             },
