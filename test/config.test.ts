@@ -6,6 +6,7 @@ describe("loadOptions", () => {
     expect(loadOptions()).toMatchObject({
       providerID: "kiro",
       region: "us-east-1",
+      login: { useDeviceFlow: false },
       backend: "auto",
       modelDiscovery: "auto",
       modelDiscoveryCommand: DEFAULT_MODEL_DISCOVERY_COMMAND,
@@ -25,6 +26,13 @@ describe("loadOptions", () => {
       loadOptions({
         providerID: "kiro-dev",
         region: "eu-central-1",
+        login: {
+          license: "pro",
+          identityProvider: " https://example.awsapps.com/start ",
+          region: " ap-northeast-2 ",
+          useDeviceFlow: true,
+          extraArgs: ["--verbose", 123],
+        },
         endpoint: " https://custom.example ",
         backend: "fetch",
         modelDiscovery: "off",
@@ -48,6 +56,13 @@ describe("loadOptions", () => {
     ).toMatchObject({
       providerID: "kiro-dev",
       region: "eu-central-1",
+      login: {
+        license: "pro",
+        identityProvider: "https://example.awsapps.com/start",
+        region: "ap-northeast-2",
+        useDeviceFlow: true,
+        extraArgs: ["--verbose"],
+      },
       endpoint: "https://custom.example",
       backend: "fetch",
       modelDiscovery: "off",

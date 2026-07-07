@@ -1,9 +1,12 @@
+import type { KiroCliLoginOptions } from "./auth.js"
+
 export type BackendMode = "auto" | "fetch" | "cli-chat" | "acp"
 export type ModelDiscoveryMode = "auto" | "off"
 
 export interface KiroPluginOptions {
   readonly providerID: string
   readonly region: string
+  readonly login: KiroCliLoginOptions
   readonly endpoint?: string
   readonly backend: BackendMode
   readonly modelDiscovery: ModelDiscoveryMode
@@ -76,6 +79,21 @@ function optionalString(value: unknown): string | undefined {
   return trimmed || undefined
 }
 
+function loginOptions(value: unknown): KiroCliLoginOptions {
+  const input = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
+  const license = input.license === "free" || input.license === "pro" ? input.license : undefined
+  const identityProvider = optionalString(input.identityProvider)
+  const region = optionalString(input.region)
+  const extraArgs = stringArray(input.extraArgs)
+  return {
+    ...(license ? { license } : {}),
+    ...(identityProvider ? { identityProvider } : {}),
+    ...(region ? { region } : {}),
+    useDeviceFlow: input.useDeviceFlow === true,
+    ...(extraArgs.length > 0 ? { extraArgs } : {}),
+  }
+}
+
 export function loadOptions(raw: unknown = {}): KiroPluginOptions {
   const input = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {}
   const backend: BackendMode =
@@ -95,6 +113,7 @@ export function loadOptions(raw: unknown = {}): KiroPluginOptions {
   return {
     providerID: typeof input.providerID === "string" && input.providerID ? input.providerID : DEFAULT_PROVIDER_ID,
     region: typeof input.region === "string" && input.region ? input.region : DEFAULT_REGION,
+    login: loginOptions(input.login),
     ...(endpoint ? { endpoint } : {}),
     backend,
     modelDiscovery,

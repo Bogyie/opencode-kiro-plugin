@@ -38,9 +38,31 @@ The plugin resolves credentials in this order:
 3. Local Kiro CLI session token from the Kiro CLI SQLite store
 4. `kiro-cli whoami` diagnostics for CLI session visibility
 
-When no usable Kiro CLI session is available, OpenCode's startup model discovery may start the same Kiro CLI login flow automatically. The plugin runs `kiro-cli login --use-device-flow`, waits for login to complete through `kiro-cli whoami`, and then runs the model discovery command one more time. If that login fails or times out, discovery fails for that startup attempt; it does not loop.
+When no usable Kiro CLI session is available, OpenCode's startup model discovery may start the same Kiro CLI login flow automatically. The plugin runs `kiro-cli login`, waits for login to complete through `kiro-cli whoami`, and then runs the model discovery command one more time. If that login fails or times out, discovery fails for that startup attempt; it does not loop.
 
-You can also open OpenCode's provider connector, choose Kiro, and select `Kiro CLI login`. The connector flow starts `kiro-cli login --use-device-flow`, waits until the verification URL/device code is visible, returns them to the connector, and then waits until `kiro-cli whoami` succeeds. Direct fetch mode uses a usable API key/token when one is configured; otherwise it reads the active Kiro CLI session token and calls Kiro's REST/EventStream endpoint directly. If credentials expire during use, direct fetch and `cli-chat` start the shared Kiro login flow, wait for it to complete, and retry the failed request once. `cli-chat` mode uses the official `kiro-cli chat --no-interactive` surface and depends on the local Kiro CLI login state. `acp` mode uses the official `kiro-cli acp` surface, but is still treated as an explicit backend while its real-world protocol behavior is validated across Kiro CLI versions.
+You can also open OpenCode's provider connector, choose Kiro, and select `Kiro CLI login`. The connector flow starts `kiro-cli login`, waits until the login URL/device code is visible, returns it to the connector, and then waits until `kiro-cli whoami` succeeds. Direct fetch mode uses a usable API key/token when one is configured; otherwise it reads the active Kiro CLI session token and calls Kiro's REST/EventStream endpoint directly. If credentials expire during use, direct fetch and `cli-chat` start the shared Kiro login flow, wait for it to complete, and retry the failed request once. `cli-chat` mode uses the official `kiro-cli chat --no-interactive` surface and depends on the local Kiro CLI login state. `acp` mode uses the official `kiro-cli acp` surface, but is still treated as an explicit backend while its real-world protocol behavior is validated across Kiro CLI versions.
+
+For AWS IAM Identity Center login, configure the CLI login arguments separately from the API region:
+
+```jsonc
+{
+  "plugin": [
+    [
+      "@bogyie/opencode-kiro-plugin",
+      {
+        "region": "ap-northeast-2",
+        "login": {
+          "license": "pro",
+          "identityProvider": "https://example.awsapps.com/start",
+          "region": "ap-northeast-2"
+        }
+      }
+    ]
+  ]
+}
+```
+
+This runs `kiro-cli login --license pro --identity-provider https://example.awsapps.com/start --region ap-northeast-2`. Do not enable `login.useDeviceFlow` for the normal browser callback flow; Kiro CLI needs to keep its localhost callback listener alive while the browser redirects back.
 
 Use the `kiro_status` plugin tool to inspect provider id, backend, region, auth method, and discovered model count. Secrets are redacted in diagnostics.
 
@@ -56,6 +78,12 @@ Configure the backend through plugin options:
       {
         "backend": "auto",
         "region": "us-east-1",
+        // Optional Kiro CLI login overrides:
+        // "login": {
+        //   "license": "pro",
+        //   "identityProvider": "https://example.awsapps.com/start",
+        //   "region": "ap-northeast-2"
+        // },
         "endpoint": "https://q.us-east-1.amazonaws.com",
         "maxAttempts": 3,
         "requestTimeoutMs": 120000,

@@ -58,10 +58,19 @@ export interface KiroLoginSession {
   waitForAuth(runner?: CommandRunner): Promise<boolean>
 }
 
+export interface KiroCliLoginOptions {
+  readonly license?: "free" | "pro"
+  readonly identityProvider?: string
+  readonly region?: string
+  readonly useDeviceFlow?: boolean
+  readonly extraArgs?: ReadonlyArray<string>
+}
+
 export interface KiroLoginFlowOptions {
   readonly spawner?: ProcessSpawner
   readonly runner?: CommandRunner
   readonly promptTimeoutMs?: number
+  readonly login?: KiroCliLoginOptions
 }
 
 export const KIRO_LOGIN_URL = "https://view.awsapps.com/start"
@@ -70,7 +79,9 @@ export const DEFAULT_KIRO_CLI_TOKEN_KEYS = ["kirocli:odic:token", "codewhisperer
 const LOGIN_REUSE_WINDOW_MS = 2 * 60 * 1000
 let sharedLoginSession: KiroLoginSession | undefined
 let sharedLoginStartedAt = 0
+let sharedLoginSessionKey = ""
 let sharedLoginFlow: Promise<boolean> | undefined
+let sharedLoginFlowKey = ""
 
 export async function runCommand(command: string, args: ReadonlyArray<string>, options: CommandRunOptions = {}): Promise<CommandResult> {
   try {
@@ -226,8 +237,38 @@ export function extractKiroLoginCode(output: string): string | undefined {
   return /\b[A-Z0-9]{4}-[A-Z0-9]{4}\b/.exec(output)?.[0] ?? /\b[A-Z0-9]{8,}\b/.exec(output)?.[0]
 }
 
-export function startKiroCliLogin(spawner: ProcessSpawner = (command, args) => spawn(command, [...args], { stdio: ["ignore", "pipe", "pipe"] })): KiroLoginSession {
-  const child = spawner("kiro-cli", ["login", "--use-device-flow"])
+function defaultSpawner(command: string, args: ReadonlyArray<string>): ChildProcess {
+  return spawn(command, [...args], { stdio: ["ignore", "pipe", "pipe"] })
+}
+
+function loginKey(options: KiroCliLoginOptions = {}): string {
+  return JSON.stringify(kiroCliLoginArgs(options))
+}
+
+function loginOptionsAndSpawner(
+  optionsOrSpawner: KiroCliLoginOptions | ProcessSpawner | undefined,
+  spawner: ProcessSpawner | undefined,
+): { options: KiroCliLoginOptions; spawner: ProcessSpawner } {
+  if (typeof optionsOrSpawner === "function") return { options: {}, spawner: optionsOrSpawner }
+  return { options: optionsOrSpawner ?? {}, spawner: spawner ?? defaultSpawner }
+}
+
+export function kiroCliLoginArgs(options: KiroCliLoginOptions = {}): string[] {
+  const args = ["login"]
+  if (options.license) args.push("--license", options.license)
+  if (options.identityProvider) args.push("--identity-provider", options.identityProvider)
+  if (options.region) args.push("--region", options.region)
+  if (options.useDeviceFlow) args.push("--use-device-flow")
+  args.push(...(options.extraArgs ?? []))
+  return args
+}
+
+export function startKiroCliLogin(
+  optionsOrSpawner?: KiroCliLoginOptions | ProcessSpawner,
+  spawner?: ProcessSpawner,
+): KiroLoginSession {
+  const resolved = loginOptionsAndSpawner(optionsOrSpawner, spawner)
+  const child = resolved.spawner("kiro-cli", kiroCliLoginArgs(resolved.options))
   let output = ""
   let exited = false
   let exitCode: number | null = null
@@ -278,12 +319,17 @@ export function startKiroCliLogin(spawner: ProcessSpawner = (command, args) => s
 }
 
 export function startKiroCliLoginOnce(
-  spawner: ProcessSpawner = (command, args) => spawn(command, [...args], { stdio: ["ignore", "pipe", "pipe"] }),
+  optionsOrSpawner?: KiroCliLoginOptions | ProcessSpawner,
+  spawner?: ProcessSpawner,
 ): KiroLoginSession {
+  const resolved = loginOptionsAndSpawner(optionsOrSpawner, spawner)
+  const key = loginKey(resolved.options)
   const now = Date.now()
-  if (sharedLoginSession && now - sharedLoginStartedAt < LOGIN_REUSE_WINDOW_MS) return sharedLoginSession
+  if (sharedLoginSession && sharedLoginSessionKey === key && now - sharedLoginStartedAt < LOGIN_REUSE_WINDOW_MS) {
+    return sharedLoginSession
+  }
 
-  const session = startKiroCliLogin(spawner)
+  const session = startKiroCliLogin(resolved.options, resolved.spawner)
   const wrapped: KiroLoginSession = {
     get url() {
       return session.url
@@ -304,23 +350,30 @@ export function startKiroCliLoginOnce(
         if (sharedLoginSession === wrapped) {
           sharedLoginSession = undefined
           sharedLoginStartedAt = 0
+          sharedLoginSessionKey = ""
         }
       }
     },
   }
   sharedLoginSession = wrapped
   sharedLoginStartedAt = now
+  sharedLoginSessionKey = key
   return wrapped
 }
 
 export async function runKiroLoginFlowOnce(options: KiroLoginFlowOptions = {}): Promise<boolean> {
-  sharedLoginFlow ??= (async () => {
-    const session = startKiroCliLoginOnce(options.spawner)
-    await session.waitForPrompt(options.promptTimeoutMs)
-    return session.waitForAuth(options.runner)
-  })().finally(() => {
-    sharedLoginFlow = undefined
-  })
+  const key = loginKey(options.login)
+  if (!sharedLoginFlow || sharedLoginFlowKey !== key) {
+    sharedLoginFlowKey = key
+    sharedLoginFlow = (async () => {
+      const session = startKiroCliLoginOnce(options.login, options.spawner)
+      await session.waitForPrompt(options.promptTimeoutMs)
+      return session.waitForAuth(options.runner)
+    })().finally(() => {
+      sharedLoginFlow = undefined
+      sharedLoginFlowKey = ""
+    })
+  }
   return sharedLoginFlow
 }
 

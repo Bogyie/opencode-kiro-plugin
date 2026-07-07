@@ -2,7 +2,7 @@ import type { Hooks, Plugin } from "@opencode-ai/plugin"
 import { tool } from "@opencode-ai/plugin"
 import { KiroAcpTransport } from "./acp-transport.js"
 import type { KiroAcpTransportOptions } from "./acp-transport.js"
-import { detectAuth, resolveApiKey, startKiroCliLoginOnce } from "./auth.js"
+import { detectAuth, resolveApiKey, runKiroLoginFlowOnce, startKiroCliLoginOnce } from "./auth.js"
 import { KiroCliChatTransport } from "./cli-transport.js"
 import { loadOptions } from "./config.js"
 import type { KiroPluginOptions } from "./config.js"
@@ -94,11 +94,14 @@ function localTransport(options: KiroPluginOptions, accessToken?: string): KiroT
     return new KiroCliChatTransport({
       trustAllTools: options.trustAllTools,
       ...(options.requestTimeoutMs ? { requestTimeoutMs: options.requestTimeoutMs } : {}),
+      login: () => runKiroLoginFlowOnce({ login: options.login }),
     })
   }
   if (backend === "fetch") {
     const apiKey = accessToken || process.env.KIRO_API_KEY
-    return new KiroRestTransport(fetchTransportOptions(options, apiKey === "kiro-plugin-local-transport" ? undefined : apiKey))
+    return new KiroRestTransport(fetchTransportOptions(options, apiKey === "kiro-plugin-local-transport" ? undefined : apiKey), {
+      login: () => runKiroLoginFlowOnce({ login: options.login }),
+    })
   }
   return undefined
 }
@@ -152,7 +155,7 @@ export function createKiroPlugin(): Plugin {
         modelCache,
         options.modelDiscoveryCommand[0] as string,
         options.modelDiscoveryCommand.slice(1),
-        { loginOnAuthFailure: true },
+        { loginOnAuthFailure: true, login: () => runKiroLoginFlowOnce({ login: options.login }) },
       )
         .catch(() => undefined)
         .then(() => {
@@ -210,7 +213,7 @@ export function createKiroPlugin(): Plugin {
             type: "oauth",
             label: "Kiro CLI login",
             authorize: async () => {
-              const session = startKiroCliLoginOnce()
+              const session = startKiroCliLoginOnce(options.login)
               await session.waitForPrompt()
               return {
                 url: session.url,

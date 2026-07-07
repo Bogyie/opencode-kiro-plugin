@@ -6,6 +6,7 @@ import {
   detectAuth,
   extractKiroLoginCode,
   extractKiroLoginUrl,
+  kiroCliLoginArgs,
   KIRO_LOGIN_URL,
   readKiroCliSessionCredential,
   redacted,
@@ -87,16 +88,16 @@ describe("auth diagnostics", () => {
     expect(extractKiroLoginUrl("Open https://example.com/device and continue")).toBe("https://example.com/device")
     expect(
       extractKiroLoginUrl(
-        "Open https://us-east-1.signin.aws/platform/d-9067642ac7/login?workflowStateHandle=abc then https://app.kiro.dev/signin?state=vKegj05kik&code_challenge=Xdjl98tT9W877w0wloRSvZEPlbiEtoL3zJoFGxkFCTI&code_challenge_method=S256&redirect_uri=http%3A%2F%2Flocalhost%3A3128&redirect_from=kirocli",
+        "Open https://us-east-1.signin.aws/platform/example/login?workflowStateHandle=abc then https://app.kiro.dev/signin?state=vKegj05kik&code_challenge=Xdjl98tT9W877w0wloRSvZEPlbiEtoL3zJoFGxkFCTI&code_challenge_method=S256&redirect_uri=http%3A%2F%2Flocalhost%3A3128&redirect_from=kirocli",
       ),
     ).toBe(
       "https://app.kiro.dev/signin?state=vKegj05kik&code_challenge=Xdjl98tT9W877w0wloRSvZEPlbiEtoL3zJoFGxkFCTI&code_challenge_method=S256&redirect_uri=http%3A%2F%2Flocalhost%3A3128&redirect_from=kirocli",
     )
     expect(
       extractKiroLoginUrl(
-        "Callback http://localhost:3128/signin/callback?issuer_url=https%3A%2F%2Fd-9b6725f2a3.awsapps.com%2Fstart&state=abc",
+        "Callback http://localhost:3128/signin/callback?issuer_url=https%3A%2F%2Fexample.awsapps.com%2Fstart&state=abc",
       ),
-    ).toBe("https://d-9b6725f2a3.awsapps.com/start")
+    ).toBe("https://example.awsapps.com/start")
     expect(extractKiroLoginUrl("Callback http://127.0.0.1:3128/signin/callback?state=abc")).toBe(KIRO_LOGIN_URL)
     expect(extractKiroLoginUrl("no url yet")).toBe(KIRO_LOGIN_URL)
   })
@@ -107,7 +108,27 @@ describe("auth diagnostics", () => {
     expect(extractKiroLoginCode("no code")).toBeUndefined()
   })
 
-  test("starts Kiro CLI device login and waits for whoami success", async () => {
+  test("builds Kiro CLI login args for default, device flow, and Identity Center login", () => {
+    expect(kiroCliLoginArgs()).toEqual(["login"])
+    expect(kiroCliLoginArgs({ useDeviceFlow: true })).toEqual(["login", "--use-device-flow"])
+    expect(
+      kiroCliLoginArgs({
+        license: "pro",
+        identityProvider: "https://example.awsapps.com/start",
+        region: "ap-northeast-2",
+      }),
+    ).toEqual([
+      "login",
+      "--license",
+      "pro",
+      "--identity-provider",
+      "https://example.awsapps.com/start",
+      "--region",
+      "ap-northeast-2",
+    ])
+  })
+
+  test("starts Kiro CLI login and waits for whoami success", async () => {
     const stdout = new PassThrough()
     const stderr = new PassThrough()
     const child = new EventEmitter() as EventEmitter & {
@@ -126,12 +147,53 @@ describe("auth diagnostics", () => {
     const prompted = await session.waitForPrompt(1000)
     const authenticated = await session.waitForAuth(async () => ({ ok: true, stdout: "dev@example.com", stderr: "" }))
 
-    expect(calls).toEqual([{ command: "kiro-cli", args: ["login", "--use-device-flow"] }])
+    expect(calls).toEqual([{ command: "kiro-cli", args: ["login"] }])
     expect(prompted).toBe(true)
     expect(session.url).toBe("https://example.com/device")
     expect(session.code).toBe("ABCD-EFGH")
     expect(session.instructions).toBe("Enter code: ABCD-EFGH")
     expect(authenticated).toBe(true)
+  })
+
+  test("starts Kiro CLI login with configured Identity Center options", async () => {
+    const stdout = new PassThrough()
+    const stderr = new PassThrough()
+    const child = new EventEmitter() as EventEmitter & {
+      stdout: PassThrough
+      stderr: PassThrough
+    }
+    child.stdout = stdout
+    child.stderr = stderr
+    const calls: unknown[] = []
+
+    const session = startKiroCliLogin(
+      {
+        license: "pro",
+        identityProvider: "https://example.awsapps.com/start",
+        region: "ap-northeast-2",
+      },
+      (command, args) => {
+        calls.push({ command, args })
+        queueMicrotask(() => stdout.write("Open https://app.kiro.dev/signin?redirect_from=kirocli"))
+        return child as unknown as ChildProcess
+      },
+    )
+
+    expect(await session.waitForPrompt(1000)).toBe(true)
+    expect(calls).toEqual([
+      {
+        command: "kiro-cli",
+        args: [
+          "login",
+          "--license",
+          "pro",
+          "--identity-provider",
+          "https://example.awsapps.com/start",
+          "--region",
+          "ap-northeast-2",
+        ],
+      },
+    ])
   })
 
   test("reuses an in-flight Kiro CLI device login session", async () => {
