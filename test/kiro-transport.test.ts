@@ -16,6 +16,7 @@ const request: KiroGenerateRequest = {
   modelId: "claude-sonnet-4.6",
   system: "Be concise.",
   prompt: "user: Hello",
+  history: [{ role: "assistant", content: "Previous answer" }],
   stream: false,
   metadata: {
     originalModel: "claude-sonnet-4-6",
@@ -32,9 +33,13 @@ describe("toGenerateAssistantResponseInput", () => {
       agentMode: "vibe",
       conversationState: {
         chatTriggerType: "MANUAL",
+        history: [
+          { userInputMessage: { content: "Be concise.", origin: "AI_EDITOR" } },
+          { assistantResponseMessage: { content: "Previous answer" } },
+        ],
         currentMessage: {
           userInputMessage: {
-            content: "Be concise.\n\nuser: Hello",
+            content: "user: Hello",
             modelId: "claude-sonnet-4.6",
             origin: "AI_EDITOR",
           },
@@ -89,6 +94,10 @@ describe("CodeWhispererKiroTransport", () => {
     expect(sent[0]).toMatchObject({
       agentMode: "vibe",
       conversationState: {
+        history: [
+          { userInputMessage: { content: "Be concise.", origin: "AI_EDITOR" } },
+          { assistantResponseMessage: { content: "Previous answer" } },
+        ],
         currentMessage: {
           userInputMessage: {
             modelId: "claude-sonnet-4.6",
@@ -98,4 +107,3 @@ describe("CodeWhispererKiroTransport", () => {
     })
   })
 })
-

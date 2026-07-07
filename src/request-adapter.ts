@@ -19,6 +19,7 @@ export interface KiroGenerateRequest {
   readonly modelId: string
   readonly prompt: string
   readonly system?: string
+  readonly history: ReadonlyArray<KiroConversationTurn>
   readonly stream: boolean
   readonly metadata: {
     readonly originalModel: string
@@ -26,6 +27,11 @@ export interface KiroGenerateRequest {
     readonly modelSource: string
     readonly hasTools: boolean
   }
+}
+
+export interface KiroConversationTurn {
+  readonly role: "user" | "assistant" | "tool"
+  readonly content: string
 }
 
 function textFromContent(content: OpenAIChatMessage["content"]): string {
@@ -60,18 +66,20 @@ export function toKiroGenerateRequest(request: OpenAIChatRequest, resolver: Mode
     .map((message) => textFromContent(message.content))
     .filter(Boolean)
     .join("\n\n")
-  const prompt = request.messages
+  const turns = request.messages
     .filter((message) => message.role !== "system")
     .map((message) => {
       const content = textFromContent(message.content)
-      return content ? `${message.role}: ${content}` : ""
+      return content ? { role: message.role, content } : undefined
     })
-    .filter(Boolean)
-    .join("\n\n")
+    .filter((item): item is KiroConversationTurn => item !== undefined)
+  const current = turns.at(-1)
+  const history = turns.slice(0, -1)
 
   return {
     modelId: resolved.internalID,
-    prompt,
+    prompt: current?.content ?? "",
+    history,
     ...(system ? { system } : {}),
     stream: request.stream === true,
     metadata: {
@@ -82,4 +90,3 @@ export function toKiroGenerateRequest(request: OpenAIChatRequest, resolver: Mode
     },
   }
 }
-

@@ -27,7 +27,11 @@ describe("request adapter", () => {
     expect(toKiroGenerateRequest(request, resolver())).toEqual({
       modelId: "claude-sonnet-4.6",
       system: "You are concise.",
-      prompt: "user: Hello\n\nassistant: Hi\n\nuser: Write code",
+      prompt: "Write code",
+      history: [
+        { role: "user", content: "Hello" },
+        { role: "assistant", content: "Hi" },
+      ],
       stream: false,
       metadata: {
         originalModel: "claude-sonnet-4-6",
@@ -90,4 +94,3 @@ describe("createKiroFetch", () => {
     expect(body.error.code).toBe("UNSUPPORTED_BACKEND")
   })
 })
-

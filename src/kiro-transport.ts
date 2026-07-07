@@ -54,12 +54,38 @@ export function toGenerateAssistantResponseInput(
   request: KiroGenerateRequest,
   options: Pick<KiroTransportOptions, "profileArn" | "agentMode"> = {},
 ): GenerateAssistantResponseCommandInput {
-  const content = request.system ? `${request.system}\n\n${request.prompt}` : request.prompt
+  const content = request.prompt
   return {
     ...(options.profileArn ? { profileArn: options.profileArn } : {}),
     agentMode: options.agentMode ?? DEFAULT_AGENT_MODE,
     conversationState: {
       chatTriggerType: "MANUAL",
+      history: [
+        ...(request.system
+          ? [
+              {
+                userInputMessage: {
+                  content: request.system,
+                  origin: "AI_EDITOR",
+                },
+              },
+            ]
+          : []),
+        ...request.history.map((turn) =>
+          turn.role === "assistant"
+            ? {
+                assistantResponseMessage: {
+                  content: turn.content,
+                },
+              }
+            : {
+                userInputMessage: {
+                  content: turn.content,
+                  origin: "AI_EDITOR",
+                },
+              },
+        ),
+      ],
       currentMessage: {
         userInputMessage: {
           content,
