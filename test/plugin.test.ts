@@ -112,23 +112,22 @@ describe("Kiro plugin", () => {
 
     expect(hooks.config).toBeFunction()
     expect(hooks.auth?.provider).toBe("kiro")
-    expect(hooks.auth?.methods.map((method) => method.type)).toEqual(["oauth", "oauth", "api"])
-    expect(hooks.auth?.methods.map((method) => method.label)).toEqual(["Kiro device login", "Kiro device login (custom)", "Kiro API key"])
+    expect(hooks.auth?.methods.map((method) => method.type)).toEqual(["oauth", "api"])
+    expect(hooks.auth?.methods.map((method) => method.label)).toEqual(["Kiro device login", "Kiro API key"])
     expect(hooks.provider?.id).toBe("kiro")
   })
 
-  test("labels the prompt-free connector login when Identity Center defaults are configured", async () => {
+  test("keeps connector login on the Kiro CLI device-flow path", async () => {
     const hooks = await createKiroPlugin()(input, {
+      profileArn: "arn:aws:codewhisperer:ap-northeast-2:123456789012:profile/PROFILEID",
       login: {
         identityProvider: "https://example.awsapps.com/start",
         region: "ap-northeast-2",
       },
     })
 
-    expect(hooks.auth?.methods[0]?.label).toBe("Kiro device login (configured)")
+    expect(hooks.auth?.methods[0]?.label).toBe("Kiro device login")
     expect(hooks.auth?.methods[0]).not.toHaveProperty("prompts")
-    expect(hooks.auth?.methods[1]?.label).toBe("Kiro device login (custom)")
-    expect(hooks.auth?.methods[1]).toHaveProperty("prompts")
   })
 
   test("injects provider config without replacing user model overrides", async () => {

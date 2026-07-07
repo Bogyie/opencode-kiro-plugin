@@ -3,15 +3,12 @@ import { tool } from "@opencode-ai/plugin"
 import { KiroAcpTransport } from "./acp-transport.js"
 import type { KiroAcpTransportOptions } from "./acp-transport.js"
 import {
-  authorizeKiroDevice,
   credentialFromKiroDeviceAuthKey,
   detectAuth,
-  encodeKiroDeviceAuthKey,
   isKiroDeviceAuthKey,
-  kiroDeviceVerificationUrl,
-  pollKiroDeviceToken,
   readKiroCliSessionCredential,
   resolveApiKey,
+  startKiroCliLoginOnce,
   runKiroLoginFlowOnce,
 } from "./auth.js"
 import { KiroCliChatTransport } from "./cli-transport.js"
@@ -87,11 +84,6 @@ function bearerToken(init: RequestInit | undefined): string | undefined {
   const header = new Headers(init?.headers).get("authorization")
   const match = header?.match(/^Bearer\s+(.+)$/i)
   return match?.[1] || undefined
-}
-
-function inputString(inputs: Record<string, unknown> | undefined, key: string): string | undefined {
-  const value = inputs?.[key]
-  return typeof value === "string" && value.trim() ? value.trim() : undefined
 }
 
 export function effectiveBackend(options: Pick<KiroPluginOptions, "backend">, accessToken?: string): EffectiveBackend {
@@ -207,39 +199,25 @@ export function createKiroPlugin(): Plugin {
       return localServer
     }
 
-    const authorizeDeviceLogin = async (inputs?: Record<string, unknown>) => {
-      const startUrl = inputString(inputs, "startUrl") ?? options.login.identityProvider
-      const idcRegion = inputString(inputs, "idcRegion") ?? options.login.region ?? "us-east-1"
-      const profileArn = inputString(inputs, "profileArn") ?? options.profileArn
-      const authorization = await authorizeKiroDevice({
-        region: idcRegion,
-        ...(startUrl ? { identityProvider: startUrl } : {}),
+    const authorizeCliDeviceLogin = async () => {
+      const session = startKiroCliLoginOnce({
+        ...options.login,
+        useDeviceFlow: true,
       })
-      const url = startUrl ? kiroDeviceVerificationUrl(authorization.startUrl, authorization.userCode) : authorization.verificationUrlComplete
+      await session.waitForPrompt(options.requestTimeoutMs)
       return {
-        url,
-        instructions: `Open the verification URL and complete Kiro sign-in.\nCode: ${authorization.userCode}`,
+        url: session.url,
+        instructions: session.instructions,
         method: "auto" as const,
         callback: async () => {
-          const credential = await pollKiroDeviceToken(
-            authorization,
-            {
-              region: options.region,
-              ...(profileArn ? { profileArn } : {}),
-            },
-          )
-          const key = encodeKiroDeviceAuthKey(credential)
+          const authenticated = await session.waitForAuth()
+          if (!authenticated) return { type: "failed" as const }
+          await refreshModels(true).catch(() => [])
           return {
             type: "success" as const,
-            key,
-            access: key,
-            refresh: credential.refreshToken,
-            expires: credential.expiresAt,
+            key: "kiro-plugin-local-transport",
             metadata: {
-              source: "kiro-device-auth",
-              region: credential.region,
-              oidcRegion: credential.oidcRegion,
-              ...(credential.profileArn ? { profileArn: credential.profileArn } : {}),
+              source: "kiro-cli-device-flow",
             },
           }
         },
@@ -272,40 +250,8 @@ export function createKiroPlugin(): Plugin {
         methods: [
           {
             type: "oauth",
-            label: options.login.identityProvider ? "Kiro device login (configured)" : "Kiro device login",
-            authorize: async () => authorizeDeviceLogin(),
-          },
-          {
-            type: "oauth",
-            label: "Kiro device login (custom)",
-            prompts: [
-              {
-                type: "text",
-                key: "startUrl",
-                message: options.login.identityProvider
-                  ? `IAM Identity Center Start URL (current: ${options.login.identityProvider}, leave blank to keep)`
-                  : "IAM Identity Center Start URL (leave blank for AWS Builder ID)",
-                placeholder: "https://your-company.awsapps.com/start",
-              },
-              {
-                type: "text",
-                key: "idcRegion",
-                message:
-                  options.login.region && options.login.region !== "us-east-1"
-                    ? `IAM Identity Center region (current: ${options.login.region}, leave blank to keep)`
-                    : "IAM Identity Center region (leave blank for us-east-1)",
-                placeholder: "us-east-1",
-              },
-              {
-                type: "text",
-                key: "profileArn",
-                message: options.profileArn
-                  ? `Profile ARN (current: ${options.profileArn}, leave blank to keep)`
-                  : "Profile ARN (optional, improves region/profile routing for IAM Identity Center)",
-                placeholder: "arn:aws:codewhisperer:us-east-1:123456789012:profile/XXXXXXXXXX",
-              },
-            ],
-            authorize: async (inputs) => authorizeDeviceLogin(inputs),
+            label: "Kiro device login",
+            authorize: async () => authorizeCliDeviceLogin(),
           },
           {
             type: "api",
