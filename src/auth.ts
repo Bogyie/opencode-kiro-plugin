@@ -167,12 +167,59 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-function firstUrl(text: string): string | undefined {
-  return /https?:\/\/[^\s"'<>]+/.exec(text)?.[0]
+function urls(text: string): string[] {
+  return text.match(/https?:\/\/[^\s"'<>]+/g) ?? []
+}
+
+function isLocalCallbackUrl(value: string): boolean {
+  try {
+    const url = new URL(value)
+    const hostname = url.hostname.toLowerCase()
+    return (
+      (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" || hostname === "[::1]") &&
+      url.pathname.includes("/callback")
+    )
+  } catch {
+    return false
+  }
+}
+
+function loginUrlFromLocalCallbackUrl(value: string): string | undefined {
+  if (!isLocalCallbackUrl(value)) return undefined
+  try {
+    const issuerUrl = new URL(value).searchParams.get("issuer_url")
+    if (!issuerUrl || isLocalCallbackUrl(issuerUrl)) return undefined
+    const parsed = new URL(issuerUrl)
+    return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.toString() : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function isKiroSigninUrl(value: string): boolean {
+  try {
+    const url = new URL(value)
+    return url.hostname.toLowerCase() === "app.kiro.dev" && url.pathname === "/signin"
+  } catch {
+    return false
+  }
+}
+
+function firstLoginUrl(text: string): string | undefined {
+  const candidates = urls(text)
+  const kiroSigninUrl = candidates.find(isKiroSigninUrl)
+  if (kiroSigninUrl) return kiroSigninUrl
+
+  for (const url of candidates) {
+    const callbackLoginUrl = loginUrlFromLocalCallbackUrl(url)
+    if (callbackLoginUrl) return callbackLoginUrl
+    if (!isLocalCallbackUrl(url)) return url
+  }
+  return undefined
 }
 
 export function extractKiroLoginUrl(output: string): string {
-  return firstUrl(output) ?? KIRO_LOGIN_URL
+  return firstLoginUrl(output) ?? KIRO_LOGIN_URL
 }
 
 export function extractKiroLoginCode(output: string): string | undefined {
@@ -211,11 +258,11 @@ export function startKiroCliLogin(spawner: ProcessSpawner = (command, args) => s
       const deadline = Date.now() + timeoutMs
       while (Date.now() < deadline) {
         if (extractKiroLoginCode(output)) return true
-        if (firstUrl(output)) return true
+        if (firstLoginUrl(output)) return true
         if (exited && exitCode !== 0) return false
         await delay(100)
       }
-      return Boolean(extractKiroLoginCode(output) || firstUrl(output))
+      return Boolean(extractKiroLoginCode(output) || firstLoginUrl(output))
     },
     async waitForAuth(runner: CommandRunner = runCommand): Promise<boolean> {
       const deadline = Date.now() + 10 * 60 * 1000

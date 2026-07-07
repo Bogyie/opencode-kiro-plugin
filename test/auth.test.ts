@@ -85,6 +85,19 @@ describe("auth diagnostics", () => {
 
   test("extracts Kiro login URL from cli output with fallback", () => {
     expect(extractKiroLoginUrl("Open https://example.com/device and continue")).toBe("https://example.com/device")
+    expect(
+      extractKiroLoginUrl(
+        "Open https://us-east-1.signin.aws/platform/d-9067642ac7/login?workflowStateHandle=abc then https://app.kiro.dev/signin?state=vKegj05kik&code_challenge=Xdjl98tT9W877w0wloRSvZEPlbiEtoL3zJoFGxkFCTI&code_challenge_method=S256&redirect_uri=http%3A%2F%2Flocalhost%3A3128&redirect_from=kirocli",
+      ),
+    ).toBe(
+      "https://app.kiro.dev/signin?state=vKegj05kik&code_challenge=Xdjl98tT9W877w0wloRSvZEPlbiEtoL3zJoFGxkFCTI&code_challenge_method=S256&redirect_uri=http%3A%2F%2Flocalhost%3A3128&redirect_from=kirocli",
+    )
+    expect(
+      extractKiroLoginUrl(
+        "Callback http://localhost:3128/signin/callback?issuer_url=https%3A%2F%2Fd-9b6725f2a3.awsapps.com%2Fstart&state=abc",
+      ),
+    ).toBe("https://d-9b6725f2a3.awsapps.com/start")
+    expect(extractKiroLoginUrl("Callback http://127.0.0.1:3128/signin/callback?state=abc")).toBe(KIRO_LOGIN_URL)
     expect(extractKiroLoginUrl("no url yet")).toBe(KIRO_LOGIN_URL)
   })
 
