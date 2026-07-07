@@ -6,6 +6,23 @@ Status: early implementation. The CodeWhisperer streaming transport, CLI chat fa
 
 ## Install
 
+After the package is published to npm, add it directly to your OpenCode config:
+
+```jsonc
+{
+  "plugin": ["@bogyie/opencode-kiro-plugin"],
+  "provider": {
+    "kiro": {
+      "models": {
+        "sonnet": {
+          "name": "Sonnet alias"
+        }
+      }
+    }
+  }
+}
+```
+
 For local development from this repository:
 
 ```sh
@@ -30,8 +47,6 @@ Then add the plugin to your OpenCode config. See [examples/opencode.jsonc](examp
 }
 ```
 
-When published to npm, replace the local `file:` entry with the package name.
-
 ## Auth
 
 The plugin resolves credentials in this order:
@@ -52,7 +67,7 @@ Configure the backend through plugin options:
 {
   "plugin": [
     [
-      "file:/absolute/path/to/opencode-kiro-plugin",
+      "@bogyie/opencode-kiro-plugin",
       {
         "backend": "auto",
         "region": "us-east-1",
@@ -83,7 +98,7 @@ Useful options:
 {
   "plugin": [
     [
-      "file:/absolute/path/to/opencode-kiro-plugin",
+      "@bogyie/opencode-kiro-plugin",
       {
         "modelCacheTtlSeconds": 21600,
         "modelDiscovery": "auto",
@@ -145,6 +160,16 @@ npm run build
 ```
 
 For real Kiro/OpenCode validation, use [docs/e2e-validation.md](docs/e2e-validation.md).
+
+## Release
+
+GitHub Release publishing drives npm publishing. To publish a new npm package:
+
+1. Set the repository secret `NPM_TOKEN` to an npm automation token with publish access to `@bogyie/opencode-kiro-plugin`.
+2. Update `package.json` and `package-lock.json` to the release version.
+3. Create and publish a GitHub Release whose tag matches the package version, for example `v0.1.0`.
+
+The `Publish npm package` workflow runs tests, typecheck, package smoke validation, `npm pack --dry-run`, and then `npm publish --provenance --access public`.
 
 ## License And References
 

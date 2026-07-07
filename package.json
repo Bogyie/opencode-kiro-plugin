@@ -1,5 +1,5 @@
 {
-  "name": "opencode-kiro-plugin",
+  "name": "@bogyie/opencode-kiro-plugin",
   "version": "0.1.0",
   "description": "OpenCode plugin for using Kiro as a provider adapter",
   "type": "module",
@@ -33,7 +33,19 @@
     "kiro",
     "provider"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bogyie/opencode-kiro-plugin.git"
+  },
+  "bugs": {
+    "url": "https://github.com/bogyie/opencode-kiro-plugin/issues"
+  },
+  "homepage": "https://github.com/bogyie/opencode-kiro-plugin#readme",
   "license": "MIT",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "dependencies": {
     "@aws/codewhisperer-streaming-client": "^1.0.45",
     "@opencode-ai/plugin": "^1.15.11"

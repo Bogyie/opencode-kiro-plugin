@@ -45,7 +45,7 @@ legacy/current docs 기준 최소 예시:
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["opencode-kiro-plugin"],
+  "plugin": ["@bogyie/opencode-kiro-plugin"],
   "provider": {
     "kiro": {
       "npm": "@ai-sdk/openai-compatible",
@@ -85,4 +85,3 @@ legacy/current docs 기준 최소 예시:
 ## Version Caveat
 
 OpenCode 문서와 source에는 legacy `provider`/`plugin` config와 v2 `providers`/`plugins` spec가 함께 보입니다. 초기 플러그인은 README에 지원 OpenCode 버전과 config key를 명시해야 합니다.
-

@@ -232,7 +232,7 @@ test/
 
 Build a diagnostic-only plugin first:
 
-- `opencode.json` loads `opencode-kiro-plugin`
+- `opencode.json` loads `@bogyie/opencode-kiro-plugin`
 - plugin checks `kiro-cli --version`
 - plugin checks auth with `kiro-cli whoami`
 - plugin exposes a `kiro_status` custom tool
