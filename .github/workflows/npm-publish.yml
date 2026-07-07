@@ -6,29 +6,26 @@ on:
     paths:
       - package.json
       - package-lock.json
-  release:
-    types: [published]
 
 permissions:
   contents: read
 
 jobs:
   prepare:
-    name: Determine package release
+    name: Determine package version bump
     runs-on: ubuntu-latest
     outputs:
-      should_publish: ${{ steps.release.outputs.should_publish }}
-      version: ${{ steps.release.outputs.version }}
-      tag_name: ${{ steps.release.outputs.tag_name }}
-      create_release: ${{ steps.release.outputs.create_release }}
+      should_publish: ${{ steps.version.outputs.should_publish }}
+      version: ${{ steps.version.outputs.version }}
+      tag_name: ${{ steps.version.outputs.tag_name }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Determine release version
-        id: release
+      - name: Determine package version bump
+        id: version
         shell: bash
         run: |
           set -euo pipefail
@@ -36,41 +33,28 @@ jobs:
           VERSION="$(node -p "require('./package.json').version")"
           TAG_NAME="v${VERSION}"
           SHOULD_PUBLISH="false"
-          CREATE_RELEASE="false"
 
-          if [ "${{ github.event_name }}" = "release" ]; then
-            TAG_NAME="${{ github.event.release.tag_name }}"
-            RELEASE_VERSION="${TAG_NAME#v}"
-            if [ "$RELEASE_VERSION" != "$VERSION" ]; then
-              echo "Release tag $TAG_NAME does not match package version $VERSION" >&2
+          BEFORE="${{ github.event.before }}"
+          PREVIOUS_VERSION=""
+
+          if git cat-file -e "${BEFORE}:package.json" 2>/dev/null; then
+            PREVIOUS_VERSION="$(
+              git show "${BEFORE}:package.json" \
+                | node -e "let input = ''; process.stdin.on('data', chunk => input += chunk); process.stdin.on('end', () => console.log(JSON.parse(input).version));"
+            )"
+          fi
+
+          if [ "$PREVIOUS_VERSION" != "$VERSION" ]; then
+            if git rev-parse -q --verify "refs/tags/${TAG_NAME}" >/dev/null; then
+              echo "Tag ${TAG_NAME} already exists." >&2
               exit 1
             fi
             SHOULD_PUBLISH="true"
-          elif [ "${{ github.event_name }}" = "push" ]; then
-            BEFORE="${{ github.event.before }}"
-            PREVIOUS_VERSION=""
-
-            if git cat-file -e "${BEFORE}:package.json" 2>/dev/null; then
-              PREVIOUS_VERSION="$(
-                git show "${BEFORE}:package.json" \
-                  | node -e "let input = ''; process.stdin.on('data', chunk => input += chunk); process.stdin.on('end', () => console.log(JSON.parse(input).version));"
-              )"
-            fi
-
-            if [ "$PREVIOUS_VERSION" != "$VERSION" ]; then
-              if git rev-parse -q --verify "refs/tags/${TAG_NAME}" >/dev/null; then
-                echo "Tag ${TAG_NAME} already exists." >&2
-                exit 1
-              fi
-              SHOULD_PUBLISH="true"
-              CREATE_RELEASE="true"
-            fi
           fi
 
           echo "should_publish=${SHOULD_PUBLISH}" >> "$GITHUB_OUTPUT"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "tag_name=${TAG_NAME}" >> "$GITHUB_OUTPUT"
-          echo "create_release=${CREATE_RELEASE}" >> "$GITHUB_OUTPUT"
 
   publish:
     name: Publish to npm
@@ -124,11 +108,10 @@ jobs:
       - name: Check publish contents
         run: npm pack --dry-run
 
+      - name: Publish package
+        run: npm publish --access public
+
       - name: Create GitHub Release
-        if: needs.prepare.outputs.create_release == 'true'
         run: gh release create "${{ needs.prepare.outputs.tag_name }}" --target "$GITHUB_SHA" --title "${{ needs.prepare.outputs.tag_name }}" --notes "Release ${{ needs.prepare.outputs.tag_name }}"
         env:
           GH_TOKEN: ${{ github.token }}
-
-      - name: Publish package
-        run: npm publish --access public

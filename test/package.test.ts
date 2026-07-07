@@ -69,18 +69,18 @@ describe("package metadata", () => {
     expect(packageJson.scripts?.["smoke:package"]).toBe("npm run build && node scripts/smoke-package.mjs")
   })
 
-  test("publishes to npm through trusted publishing from releases or main version bumps", () => {
+  test("publishes to npm through trusted publishing from main package version bumps", () => {
     expect(publishWorkflow).toContain("push:")
     expect(publishWorkflow).toContain("branches: [main]")
     expect(publishWorkflow).toContain("package.json")
-    expect(publishWorkflow).toContain("release:")
-    expect(publishWorkflow).toContain("types: [published]")
+    expect(publishWorkflow).not.toContain("\n  release:")
+    expect(publishWorkflow).not.toContain("types: [published]")
     expect(publishWorkflow).toContain("environment: npm")
     expect(publishWorkflow).toContain("id-token: write")
     expect(publishWorkflow).toContain("contents: write")
     expect(publishWorkflow).toContain("node-version: 24.x")
     expect(publishWorkflow).toContain("oven-sh/setup-bun@v2")
-    expect(publishWorkflow).toContain("Determine release version")
+    expect(publishWorkflow).toContain("Determine package version bump")
     expect(publishWorkflow).toContain("gh release create")
     expect(publishWorkflow).toContain("Verify package version")
     expect(publishWorkflow).toContain("npm pack --dry-run")

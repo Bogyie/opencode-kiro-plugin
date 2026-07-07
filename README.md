@@ -179,9 +179,7 @@ Configure the npm package trusted publisher to use:
 - workflow filename: `npm-publish.yml`
 - environment name: `npm`
 
-To publish a new version from `main`, update `package.json` and `package-lock.json` to the release version and merge the change. When the `package.json` version changes on `main`, the `Publish npm package` workflow creates the matching GitHub Release tag, for example `v0.1.0`, and publishes that package version to npm.
-
-Publishing an existing GitHub Release is also supported when the release tag matches the package version.
+To publish a new version, update `package.json` and `package-lock.json` to the release version and merge the change to `main`. `package.json.version` is the source of truth: when it changes on `main`, the `Publish npm package` workflow publishes that package version to npm and creates the matching GitHub Release tag, for example `v0.1.0`.
 
 The workflow runs tests, typecheck, package smoke validation, `npm pack --dry-run`, and then `npm publish --access public`.
 
