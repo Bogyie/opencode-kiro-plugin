@@ -156,6 +156,7 @@ Direct fetch mode uses AWS SDK standard retry behavior. Tune `maxAttempts` and `
 OpenAI-compatible `temperature`, `max_tokens`, `max_completion_tokens`, `reasoning_effort`, `reasoning.effort`, and `thinking.effort` are preserved for direct fetch mode through Kiro's `additionalModelRequestFields` path on a best-effort basis.
 
 When Kiro emits token metadata in direct fetch mode, non-streaming responses map it to OpenAI-compatible `usage` fields.
+When Kiro emits reasoning text, it is preserved separately from assistant text as `reasoning_content`.
 
 For local checks:
 

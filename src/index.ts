@@ -26,7 +26,7 @@ export { FALLBACK_MODELS } from "./models.js"
 export { toKiroGenerateRequest } from "./request-adapter.js"
 export type { KiroGenerateRequest, KiroModelOptions } from "./request-adapter.js"
 export { toOpenAIChatResponse, toOpenAIChatStreamResponse } from "./response-adapter.js"
-export type { KiroStreamEvent, KiroToolCallChunk } from "./response-adapter.js"
+export type { KiroReasoningChunk, KiroStreamEvent, KiroToolCallChunk } from "./response-adapter.js"
 
 export default {
   id: "kiro",

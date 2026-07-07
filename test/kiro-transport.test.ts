@@ -168,6 +168,22 @@ describe("collectAssistantText", () => {
     })
   })
 
+  test("preserves reasoning content separately from assistant text", async () => {
+    const response = await collectAssistantText(
+      events([
+        { reasoningContentEvent: { text: "Because " } },
+        { reasoningContentEvent: { text: "tests pass." } },
+        { assistantResponseEvent: { content: "done", modelId: "claude-sonnet-4.6" } },
+      ]),
+    )
+
+    expect(response).toEqual({
+      text: "done",
+      reasoning: "Because tests pass.",
+      modelId: "claude-sonnet-4.6",
+    })
+  })
+
   test("throws on stream error events", async () => {
     expect(
       collectAssistantText(events([{ error: { message: "quota exceeded" } } as ChatResponseStream])),
@@ -237,6 +253,30 @@ describe("streamAssistantText", () => {
           inputTokens: 4,
           outputTokens: 2,
         },
+      },
+    ])
+  })
+
+  test("yields reasoning chunks separately from assistant chunks", async () => {
+    const chunks = []
+    for await (const chunk of streamAssistantText(
+      events([
+        { reasoningContentEvent: { text: "thinking" } },
+        { assistantResponseEvent: { content: "answer", modelId: "claude-sonnet-4.6" } },
+      ]),
+    )) {
+      chunks.push(chunk)
+    }
+
+    expect(chunks).toEqual([
+      {
+        type: "reasoning",
+        text: "thinking",
+      },
+      {
+        type: "text",
+        text: "answer",
+        modelId: "claude-sonnet-4.6",
       },
     ])
   })
@@ -346,6 +386,31 @@ describe("CodeWhispererKiroTransport", () => {
         inputTokens: 6,
         outputTokens: 3,
       },
+    })
+  })
+
+  test("preserves reasoning in non-streaming generate responses", async () => {
+    const client: CodeWhispererClientLike = {
+      async send() {
+        return {
+          conversationId: "conversation",
+          generateAssistantResponseResponse: events([
+            { reasoningContentEvent: { text: "thinking" } },
+            { assistantResponseEvent: { content: "done", modelId: "claude-sonnet-4.6" } },
+          ]),
+          $metadata: {},
+        }
+      },
+    }
+    const transport = new CodeWhispererKiroTransport(
+      { region: "us-east-1", accessToken: "token" },
+      () => client,
+    )
+
+    await expect(transport.generate(request)).resolves.toEqual({
+      text: "done",
+      reasoning: "thinking",
+      modelId: "claude-sonnet-4.6",
     })
   })
 

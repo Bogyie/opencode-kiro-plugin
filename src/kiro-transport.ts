@@ -180,12 +180,16 @@ export async function collectAssistantText(
   if (!stream) return { text: "" }
 
   let text = ""
+  let reasoning = ""
   let modelId: string | undefined
   let usage: KiroGenerateResponse["usage"] | undefined
   for await (const event of stream) {
     if (event.assistantResponseEvent) {
       text += event.assistantResponseEvent.content ?? ""
       modelId = event.assistantResponseEvent.modelId ?? modelId
+    }
+    if (event.reasoningContentEvent?.text) {
+      reasoning += event.reasoningContentEvent.text
     }
     usage = usageFromMetadataEvent(event) ?? usage
     if (event.error) {
@@ -195,6 +199,7 @@ export async function collectAssistantText(
 
   return {
     text,
+    ...(reasoning ? { reasoning } : {}),
     ...(modelId ? { modelId } : {}),
     ...(usage ? { usage } : {}),
   }
@@ -212,6 +217,12 @@ export async function* streamAssistantText(
         type: "text",
         text: event.assistantResponseEvent.content,
         ...(event.assistantResponseEvent.modelId ? { modelId: event.assistantResponseEvent.modelId } : {}),
+      }
+    }
+    if (event.reasoningContentEvent?.text) {
+      yield {
+        type: "reasoning",
+        text: event.reasoningContentEvent.text,
       }
     }
     if (event.toolUseEvent?.toolUseId && event.toolUseEvent.name) {
@@ -246,6 +257,7 @@ export async function* streamAssistantText(
 
 async function collectChunks(chunks: AsyncIterable<KiroStreamEvent>, fallbackModelId: string): Promise<KiroGenerateResponse> {
   let text = ""
+  let reasoning = ""
   let modelId: string | undefined
   let usage: KiroGenerateResponse["usage"] | undefined
   const toolCalls = []
@@ -255,12 +267,18 @@ async function collectChunks(chunks: AsyncIterable<KiroStreamEvent>, fallbackMod
       modelId = chunk.modelId ?? modelId
       continue
     }
+    if (chunk.type === "reasoning") {
+      reasoning += chunk.text
+      modelId = chunk.modelId ?? modelId
+      continue
+    }
     text += chunk.text
     modelId = chunk.modelId ?? modelId
     if (chunk.usage) usage = chunk.usage
   }
   return {
     text,
+    ...(reasoning ? { reasoning } : {}),
     modelId: modelId ?? fallbackModelId,
     ...(toolCalls.length > 0 ? { toolCalls } : {}),
     ...(usage ? { usage } : {}),

@@ -179,7 +179,7 @@ describe("request adapter", () => {
 describe("response adapter", () => {
   test("converts Kiro text response to OpenAI chat response shape", async () => {
     const response = toOpenAIChatResponse(
-      { text: "done", modelId: "claude-sonnet-4.6", usage: { inputTokens: 3, outputTokens: 5 } },
+      { text: "done", reasoning: "thinking", modelId: "claude-sonnet-4.6", usage: { inputTokens: 3, outputTokens: 5 } },
       "claude-sonnet-4.6",
     )
     const body = await response.json()
@@ -187,6 +187,7 @@ describe("response adapter", () => {
     expect(response.status).toBe(200)
     expect(body.model).toBe("claude-sonnet-4.6")
     expect(body.choices[0].message.content).toBe("done")
+    expect(body.choices[0].message.reasoning_content).toBe("thinking")
     expect(body.usage.total_tokens).toBe(8)
   })
 
@@ -297,6 +298,50 @@ describe("createKiroFetch", () => {
     expect(body).not.toContain('"content":""')
     expect(body).toContain('"content":"done"')
     expect(body).toContain('"finish_reason":"stop"')
+  })
+
+  test("streams reasoning deltas separately from content deltas", async () => {
+    const fetch = createKiroFetch({
+      resolver: resolver(),
+      transport: {
+        async generate() {
+          throw new Error("generate should not be called for streaming")
+        },
+        async *stream() {
+          yield { type: "reasoning" as const, text: "thinking", modelId: "claude-sonnet-4.6" }
+          yield { type: "text" as const, text: "done", modelId: "claude-sonnet-4.6" }
+        },
+      },
+    })
+
+    const response = await fetch("https://q.us-east-1.amazonaws.com/chat/completions", {
+      method: "POST",
+      body: JSON.stringify({ ...request, stream: true }),
+    })
+    const body = await response.text()
+
+    expect(body).toContain('"reasoning_content":"thinking"')
+    expect(body).toContain('"content":"done"')
+  })
+
+  test("wraps non-streaming reasoning responses as SSE when stream is requested", async () => {
+    const fetch = createKiroFetch({
+      resolver: resolver(),
+      transport: {
+        async generate(input) {
+          return { text: `received ${input.modelId}`, reasoning: "thinking", modelId: input.modelId }
+        },
+      },
+    })
+
+    const response = await fetch("https://q.us-east-1.amazonaws.com/chat/completions", {
+      method: "POST",
+      body: JSON.stringify({ ...request, stream: true }),
+    })
+    const body = await response.text()
+
+    expect(body).toContain('"reasoning_content":"thinking"')
+    expect(body).toContain('"content":"received claude-sonnet-4.6"')
   })
 
   test("wraps non-streaming transport responses as SSE when stream is requested", async () => {

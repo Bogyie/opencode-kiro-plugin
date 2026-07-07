@@ -1,5 +1,6 @@
 export interface KiroGenerateResponse {
   readonly text: string
+  readonly reasoning?: string
   readonly modelId?: string
   readonly toolCalls?: ReadonlyArray<KiroToolCallChunk>
   readonly usage?: {
@@ -23,7 +24,13 @@ export interface KiroToolCallChunk {
   readonly modelId?: string
 }
 
-export type KiroStreamEvent = KiroStreamChunk | KiroToolCallChunk
+export interface KiroReasoningChunk {
+  readonly type: "reasoning"
+  readonly text: string
+  readonly modelId?: string
+}
+
+export type KiroStreamEvent = KiroStreamChunk | KiroToolCallChunk | KiroReasoningChunk
 
 export function toOpenAIChatResponse(response: KiroGenerateResponse, model: string): Response {
   const toolCalls = response.toolCalls ?? []
@@ -38,6 +45,7 @@ export function toOpenAIChatResponse(response: KiroGenerateResponse, model: stri
         message: {
           role: "assistant",
           content: toolCalls.length > 0 ? response.text || null : response.text,
+          ...(response.reasoning ? { reasoning_content: response.reasoning } : {}),
           ...(toolCalls.length > 0
             ? {
                 tool_calls: toolCalls.map((toolCall, index) => ({
@@ -98,6 +106,9 @@ export function toOpenAIChatStreamResponse(chunks: AsyncIterable<KiroStreamEvent
                 },
               ],
             }
+          } else if (chunk.type === "reasoning") {
+            if (!chunk.text) continue
+            delta = { reasoning_content: chunk.text }
           } else {
             if (!chunk.text) continue
             delta = { content: chunk.text }

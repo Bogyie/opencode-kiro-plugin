@@ -23,6 +23,7 @@ const unsupportedTransport: KiroTransport = {
 
 async function* streamGeneratedResponse(transport: KiroTransport, request: KiroGenerateRequest): AsyncIterable<KiroStreamEvent> {
   const response = await transport.generate(request)
+  if (response.reasoning) yield { type: "reasoning", text: response.reasoning, modelId: response.modelId ?? request.modelId }
   if (response.text) yield { type: "text", text: response.text, modelId: response.modelId ?? request.modelId }
   for (const toolCall of response.toolCalls ?? []) yield toolCall
 }
