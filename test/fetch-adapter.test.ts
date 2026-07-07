@@ -101,6 +101,41 @@ describe("request adapter", () => {
     expect(converted.documents[0]?.format).toBe("pdf")
     expect(Array.from(converted.documents[0]?.bytes ?? [])).toEqual([112, 100, 102])
   })
+
+  test("deduplicates tool results and drops orphan results when assistant tool calls are present", () => {
+    const converted = toKiroGenerateRequest(
+      {
+        model: "claude-sonnet-4-6",
+        messages: [
+          { role: "user", content: "Use tools" },
+          {
+            role: "assistant",
+            content: "",
+            tool_calls: [
+              {
+                id: "call-1",
+                type: "function",
+                function: { name: "read_file", arguments: '{"path":"a"}' },
+              },
+            ],
+          },
+          { role: "tool", tool_call_id: "orphan", name: "read_file", content: "ignore" },
+          { role: "tool", tool_call_id: "call-1", content: "old" },
+          { role: "tool", tool_call_id: "call-1", content: "latest" },
+          { role: "user", content: "continue" },
+        ],
+      },
+      resolver(),
+    )
+
+    expect(converted.toolResults).toEqual([
+      {
+        toolUseId: "call-1",
+        toolName: "read_file",
+        content: "latest",
+      },
+    ])
+  })
 })
 
 describe("response adapter", () => {

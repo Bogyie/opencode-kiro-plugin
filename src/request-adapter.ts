@@ -4,10 +4,20 @@ export interface OpenAIChatMessage {
   readonly role: "system" | "user" | "assistant" | "tool"
   readonly content?: string | ReadonlyArray<OpenAIContentPart>
   readonly tool_call_id?: string
+  readonly tool_calls?: ReadonlyArray<OpenAIMessageToolCall>
   readonly name?: string
 }
 
 export type OpenAIContentPart = { type: string; text?: string; [key: string]: unknown }
+
+export interface OpenAIMessageToolCall {
+  readonly id?: string
+  readonly type?: "function"
+  readonly function?: {
+    readonly name?: string
+    readonly arguments?: string
+  }
+}
 
 export interface OpenAIChatRequest {
   readonly model: string
@@ -177,14 +187,45 @@ function toolSpecs(tools: ReadonlyArray<OpenAITool> | undefined): KiroToolSpec[]
   }))
 }
 
+function requestedToolCallIds(messages: ReadonlyArray<OpenAIChatMessage>): Set<string> {
+  const ids = new Set<string>()
+  for (const message of messages) {
+    if (message.role !== "assistant") continue
+    for (const toolCall of message.tool_calls ?? []) {
+      if (toolCall.id) ids.add(toolCall.id)
+    }
+  }
+  return ids
+}
+
+function toolNameById(messages: ReadonlyArray<OpenAIChatMessage>): Map<string, string> {
+  const names = new Map<string, string>()
+  for (const message of messages) {
+    if (message.role !== "assistant") continue
+    for (const toolCall of message.tool_calls ?? []) {
+      if (toolCall.id && toolCall.function?.name) names.set(toolCall.id, toolCall.function.name)
+    }
+  }
+  return names
+}
+
 function toolResults(messages: ReadonlyArray<OpenAIChatMessage>): KiroToolResult[] {
-  return messages
-    .filter((message) => message.role === "tool" && message.tool_call_id)
-    .map((message) => ({
-      toolUseId: message.tool_call_id as string,
+  const requested = requestedToolCallIds(messages)
+  const names = toolNameById(messages)
+  const results = new Map<string, KiroToolResult>()
+
+  for (const message of messages) {
+    if (message.role !== "tool" || !message.tool_call_id) continue
+    if (requested.size > 0 && !requested.has(message.tool_call_id)) continue
+    const toolName = message.name ?? names.get(message.tool_call_id)
+    results.set(message.tool_call_id, {
+      toolUseId: message.tool_call_id,
       content: textFromContent(message.content),
-      ...(message.name ? { toolName: message.name } : {}),
-    }))
+      ...(toolName ? { toolName } : {}),
+    })
+  }
+
+  return [...results.values()]
 }
 
 export async function readOpenAIRequest(input: RequestInfo | URL, init?: RequestInit): Promise<OpenAIChatRequest> {
