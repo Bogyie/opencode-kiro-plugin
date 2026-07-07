@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test"
+import { existsSync, mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { encodeKiroDeviceAuthKey } from "../src/auth.js"
 import { acpTransportOptions, createKiroPlugin, effectiveBackend, fetchTransportOptions } from "../src/plugin.js"
 
@@ -36,6 +39,20 @@ async function waitForProviderModel(
     await new Promise((resolve) => setTimeout(resolve, 25))
   }
   return models
+}
+
+async function refreshModels(hooks: Awaited<ReturnType<ReturnType<typeof createKiroPlugin>>>) {
+  return (hooks.tool?.kiro_refresh_models as any)?.execute({}, {})
+}
+
+function tempMarker() {
+  const directory = mkdtempSync(join(tmpdir(), "opencode-kiro-plugin-"))
+  const marker = join(directory, "called")
+  return {
+    marker,
+    command: [process.execPath, "-e", `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "called")`],
+    cleanup: () => rmSync(directory, { recursive: true, force: true }),
+  }
 }
 
 describe("Kiro plugin", () => {
@@ -95,8 +112,23 @@ describe("Kiro plugin", () => {
 
     expect(hooks.config).toBeFunction()
     expect(hooks.auth?.provider).toBe("kiro")
-    expect(hooks.auth?.methods.map((method) => method.type)).toEqual(["oauth", "api"])
+    expect(hooks.auth?.methods.map((method) => method.type)).toEqual(["oauth", "oauth", "api"])
+    expect(hooks.auth?.methods.map((method) => method.label)).toEqual(["Kiro device login", "Kiro device login (custom)", "Kiro API key"])
     expect(hooks.provider?.id).toBe("kiro")
+  })
+
+  test("labels the prompt-free connector login when Identity Center defaults are configured", async () => {
+    const hooks = await createKiroPlugin()(input, {
+      login: {
+        identityProvider: "https://example.awsapps.com/start",
+        region: "ap-northeast-2",
+      },
+    })
+
+    expect(hooks.auth?.methods[0]?.label).toBe("Kiro device login (configured)")
+    expect(hooks.auth?.methods[0]).not.toHaveProperty("prompts")
+    expect(hooks.auth?.methods[1]?.label).toBe("Kiro device login (custom)")
+    expect(hooks.auth?.methods[1]).toHaveProperty("prompts")
   })
 
   test("injects provider config without replacing user model overrides", async () => {
@@ -149,46 +181,38 @@ describe("Kiro plugin", () => {
     await hooks.dispose?.()
   })
 
-  test("keeps startup config on auto while discovered models warm in the background", async () => {
+  test("does not inject the Kiro provider during startup", async () => {
+    const marker = tempMarker()
     const hooks = await createKiroPlugin()(input, {
-      modelDiscoveryCommand: [
-        process.execPath,
-        "-e",
-        "console.log(JSON.stringify({models:[{model_id:'claude-sonnet-5',model_name:'claude-sonnet-5',context_window_tokens:1000000}]}))",
-      ],
+      modelDiscoveryCommand: marker.command,
     })
     const config: any = {}
 
-    await hooks.config?.(config)
+    try {
+      await hooks.config?.(config)
 
-    expect(config.provider.kiro.models).toEqual({ auto: { name: "Auto" } })
-    const models = await waitForProviderModel(hooks, "claude-sonnet-5")
-    expect(models?.["claude-sonnet-5"].name).toBe("claude-sonnet-5")
-    expect(models?.["claude-sonnet-5"].limit).toEqual({
-      context: 1_000_000,
-      output: 64_000,
-    })
-    await hooks.dispose?.()
+      expect(config.provider?.kiro).toBeUndefined()
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      expect(existsSync(marker.marker)).toBe(false)
+      await hooks.dispose?.()
+    } finally {
+      marker.cleanup()
+    }
   })
 
-  test("keeps Kiro visible with an auto placeholder when discovery has no models", async () => {
+  test("does not synthesize an auto placeholder when no models are configured", async () => {
     const hooks = await createKiroPlugin()(input, {
       modelDiscoveryCommand: [process.execPath, "-e", "process.exit(1)"],
     })
-    const config: any = {}
-
-    await hooks.config?.(config)
-
-    expect(config.provider.kiro.models.auto).toEqual({ name: "Auto" })
     const models = await providerModels(hooks)
-    expect(models?.auto?.api.id).toBe("auto")
-    expect(models?.auto?.api.npm).toBe("@ai-sdk/openai-compatible")
+    expect(models).toEqual({})
     await hooks.dispose?.()
   })
 
   test("does not start browser login during startup discovery auth failures", async () => {
+    const marker = tempMarker()
     const hooks = await createKiroPlugin()(input, {
-      modelDiscoveryCommand: [process.execPath, "-e", "console.error('not logged in'); process.exit(1)"],
+      modelDiscoveryCommand: marker.command,
       login: {
         license: "pro",
         identityProvider: "https://example.awsapps.com/start",
@@ -197,10 +221,16 @@ describe("Kiro plugin", () => {
     })
     const config: any = {}
 
-    await hooks.config?.(config)
+    try {
+      await hooks.config?.(config)
+      await new Promise((resolve) => setTimeout(resolve, 50))
 
-    expect(config.provider.kiro.models.auto).toEqual({ name: "Auto" })
-    await hooks.dispose?.()
+      expect(config.provider?.kiro).toBeUndefined()
+      expect(existsSync(marker.marker)).toBe(false)
+      await hooks.dispose?.()
+    } finally {
+      marker.cleanup()
+    }
   })
 
   test("provider hook adds OpenAI-compatible API metadata only to discovered or configured models", async () => {
@@ -261,6 +291,7 @@ describe("Kiro plugin", () => {
         "console.log(JSON.stringify({models:[{id:'new-model-1',name:'New Model 1',context_window_tokens:123456}]}))",
       ],
     })
+    await refreshModels(hooks)
     const models = await waitForProviderModel(hooks, "new-model-1")
 
     expect(models?.["new-model-1"]?.name).toBe("New Model 1")
@@ -290,6 +321,7 @@ describe("Kiro plugin", () => {
     const first = await providerModels(hooks)
     expect(first?.["manual-model"]?.name).toBe("Manual Model")
 
+    await refreshModels(hooks)
     const models = await waitForProviderModel(hooks, "dynamic-model")
     expect(models?.["manual-model"]?.name).toBe("Manual Model")
     expect(models?.["dynamic-model"]?.name).toBe("Dynamic Model")
@@ -405,5 +437,7 @@ describe("Kiro plugin", () => {
 
     expect(hooks.tool?.kiro_status).toBeDefined()
     expect(hooks.tool?.kiro_status?.description).toContain("Kiro plugin")
+    expect(hooks.tool?.kiro_refresh_models).toBeDefined()
+    expect(hooks.tool?.kiro_refresh_models?.description).toContain("Refresh")
   })
 })

@@ -10,6 +10,7 @@ import {
   isKiroDeviceAuthKey,
   kiroDeviceVerificationUrl,
   pollKiroDeviceToken,
+  readKiroCliSessionCredential,
   resolveApiKey,
   runKiroLoginFlowOnce,
 } from "./auth.js"
@@ -27,8 +28,6 @@ import type { ProviderModelConfig } from "./models.js"
 
 type MutableConfig = Record<string, any>
 type EffectiveBackend = "fetch" | "cli-chat" | "acp" | "none"
-const PLACEHOLDER_MODEL_ID = "auto"
-const PLACEHOLDER_MODEL: ProviderModelConfig = { name: "Auto" }
 
 function discoveredProviderModels(cache: ModelCache): Record<string, ProviderModelConfig> {
   return Object.fromEntries(
@@ -78,8 +77,7 @@ function visibleProviderModels(
         },
       ]),
   )
-  if (Object.keys(models).length > 0 || disabledModels.has(PLACEHOLDER_MODEL_ID)) return models
-  return { [PLACEHOLDER_MODEL_ID]: PLACEHOLDER_MODEL }
+  return models
 }
 
 function bearerToken(init: RequestInit | undefined): string | undefined {
@@ -116,8 +114,9 @@ function localTransport(options: KiroPluginOptions, accessToken?: string): KiroT
     const apiKey = accessToken || process.env.KIRO_API_KEY
     if (isKiroDeviceAuthKey(apiKey)) {
       return new KiroRestTransport(fetchTransportOptions(options), {
-        credentialProvider: () => credentialFromKiroDeviceAuthKey(apiKey as string).catch(() => undefined),
-        login: async () => false,
+        credentialProvider: async () =>
+          (await credentialFromKiroDeviceAuthKey(apiKey as string).catch(() => undefined)) ?? readKiroCliSessionCredential(),
+        login: () => runKiroLoginFlowOnce({ login: options.login }),
       })
     }
     return new KiroRestTransport(fetchTransportOptions(options, apiKey === "kiro-plugin-local-transport" ? undefined : apiKey), {
@@ -161,29 +160,29 @@ export function createKiroPlugin(): Plugin {
     if (Object.keys(options.extraModels).length > 0) {
       modelCache.update(Object.keys(options.extraModels).map((id) => ({ id: normalizeModelName(id) })))
     }
-    let discovery: Promise<void> | undefined
+    let discovery: Promise<unknown> | undefined
     let lastModelDiscoveryAt = 0
-    const refreshModelsIfStale = (): Promise<void> | undefined => {
+    const refreshModels = async (force = false) => {
       const discoveryIsStale = lastModelDiscoveryAt === 0 || Date.now() - lastModelDiscoveryAt > options.modelCacheTtlSeconds * 1000
-      if (options.modelDiscovery === "off" || options.modelDiscoveryCommand.length === 0 || !discoveryIsStale || discovery) {
-        return discovery
+      if (options.modelDiscovery === "off" || options.modelDiscoveryCommand.length === 0 || (!force && !discoveryIsStale)) {
+        return []
       }
-      discovery = refreshModelCacheFromCommand(
-        modelCache,
-        options.modelDiscoveryCommand[0] as string,
-        options.modelDiscoveryCommand.slice(1),
-      )
-        .then((models) => {
-          if (models.length > 0) lastModelDiscoveryAt = Date.now()
-        })
-        .catch(() => undefined)
-        .then(() => {
-          discovery = undefined
-        })
-      return discovery
-    }
-    const refreshModelsInBackground = () => {
-      void refreshModelsIfStale()
+      if (!discovery) {
+        discovery = refreshModelCacheFromCommand(
+          modelCache,
+          options.modelDiscoveryCommand[0] as string,
+          options.modelDiscoveryCommand.slice(1),
+        )
+          .then((models) => {
+            if (models.length > 0) lastModelDiscoveryAt = Date.now()
+            return models
+          })
+          .catch(() => [])
+          .finally(() => {
+            discovery = undefined
+          })
+      }
+      return (await discovery) as Awaited<ReturnType<typeof refreshModelCacheFromCommand>>
     }
     const resolver = new ModelResolver({
       cache: modelCache,
@@ -205,17 +204,53 @@ export function createKiroPlugin(): Plugin {
       return localServer
     }
 
+    const authorizeDeviceLogin = async (inputs?: Record<string, unknown>) => {
+      const startUrl = inputString(inputs, "startUrl") ?? options.login.identityProvider
+      const idcRegion = inputString(inputs, "idcRegion") ?? options.login.region ?? "us-east-1"
+      const profileArn = inputString(inputs, "profileArn") ?? options.profileArn
+      const authorization = await authorizeKiroDevice({
+        region: idcRegion,
+        ...(startUrl ? { identityProvider: startUrl } : {}),
+      })
+      const url = startUrl ? kiroDeviceVerificationUrl(authorization.startUrl, authorization.userCode) : authorization.verificationUrlComplete
+      return {
+        url,
+        instructions: `Open the verification URL and complete Kiro sign-in.\nCode: ${authorization.userCode}`,
+        method: "auto" as const,
+        callback: async () => {
+          const credential = await pollKiroDeviceToken(
+            authorization,
+            {
+              region: options.region,
+              ...(profileArn ? { profileArn } : {}),
+            },
+          )
+          const key = encodeKiroDeviceAuthKey(credential)
+          return {
+            type: "success" as const,
+            key,
+            access: key,
+            refresh: credential.refreshToken,
+            expires: credential.expiresAt,
+            metadata: {
+              source: "kiro-device-auth",
+              region: credential.region,
+              oidcRegion: credential.oidcRegion,
+              ...(credential.profileArn ? { profileArn: credential.profileArn } : {}),
+            },
+          }
+        },
+      }
+    }
+
     return {
       dispose: async () => {
         await localServer?.close()
         localServer = undefined
       },
       config: async (config: MutableConfig) => {
-        refreshModelsInBackground()
-        config.provider ??= {}
-        config.provider[options.providerID] ??= {}
-
-        const provider = config.provider[options.providerID]
+        const provider = config.provider?.[options.providerID]
+        if (!provider) return
         const server = await ensureLocalServer()
         userModelOverrides ??= modelRecord(provider.models)
         configuredModels = {
@@ -233,7 +268,12 @@ export function createKiroPlugin(): Plugin {
         methods: [
           {
             type: "oauth",
-            label: "Kiro device login",
+            label: options.login.identityProvider ? "Kiro device login (configured)" : "Kiro device login",
+            authorize: async () => authorizeDeviceLogin(),
+          },
+          {
+            type: "oauth",
+            label: "Kiro device login (custom)",
             prompts: [
               {
                 type: "text",
@@ -261,47 +301,7 @@ export function createKiroPlugin(): Plugin {
                 placeholder: "arn:aws:codewhisperer:us-east-1:123456789012:profile/XXXXXXXXXX",
               },
             ],
-            authorize: async (inputs) => {
-              const promptInputs = inputs as Record<string, unknown> | undefined
-              const startUrl = inputString(promptInputs, "startUrl") ?? options.login.identityProvider
-              const idcRegion = inputString(promptInputs, "idcRegion") ?? options.login.region ?? "us-east-1"
-              const profileArn = inputString(promptInputs, "profileArn") ?? options.profileArn
-              const authorization = await authorizeKiroDevice({
-                region: idcRegion,
-                ...(startUrl ? { identityProvider: startUrl } : {}),
-              })
-              const url = startUrl
-                ? kiroDeviceVerificationUrl(authorization.startUrl, authorization.userCode)
-                : authorization.verificationUrlComplete
-              return {
-                url,
-                instructions: `Open the verification URL and complete Kiro sign-in.\nCode: ${authorization.userCode}`,
-                method: "auto",
-                callback: async () => {
-                  const credential = await pollKiroDeviceToken(
-                    authorization,
-                    {
-                      region: options.region,
-                      ...(profileArn ? { profileArn } : {}),
-                    },
-                  )
-                  const key = encodeKiroDeviceAuthKey(credential)
-                  return {
-                    type: "success",
-                    key,
-                    access: key,
-                    refresh: credential.refreshToken,
-                    expires: credential.expiresAt,
-                    metadata: {
-                      source: "kiro-device-auth",
-                      region: credential.region,
-                      oidcRegion: credential.oidcRegion,
-                      ...(credential.profileArn ? { profileArn: credential.profileArn } : {}),
-                    },
-                  }
-                },
-              }
-            },
+            authorize: async (inputs) => authorizeDeviceLogin(inputs),
           },
           {
             type: "api",
@@ -335,7 +335,6 @@ export function createKiroPlugin(): Plugin {
           description: "Show Kiro plugin backend, auth, region, and discovered model status.",
           args: {},
           execute: async () => {
-            refreshModelsInBackground()
             const auth = await detectAuth()
             return {
               title: "Kiro status",
@@ -360,11 +359,30 @@ export function createKiroPlugin(): Plugin {
             }
           },
         }),
+        kiro_refresh_models: tool({
+          description: "Refresh the cached Kiro model list on demand.",
+          args: {},
+          execute: async () => {
+            const models = await refreshModels(true)
+            const cached = modelCache.ids()
+            return {
+              title: models.length > 0 ? "Kiro models refreshed" : "Kiro model refresh skipped",
+              output:
+                models.length > 0
+                  ? `refreshed: ${models.length}\ncached: ${cached.length}`
+                  : `No models were discovered. Keeping cached models: ${cached.length}`,
+              metadata: {
+                refreshed: models.length > 0,
+                discovered: models.length,
+                cached: cached.length,
+              },
+            }
+          },
+        }),
       },
       provider: {
         id: options.providerID,
         models: async (provider) => {
-          refreshModelsInBackground()
           const existing = modelRecord(provider.models)
           const visibleModels = visibleProviderModels(modelCache, configuredModels, options.hiddenModels, disabledModels)
           const server = await ensureLocalServer()
