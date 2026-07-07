@@ -202,10 +202,14 @@ describe("KiroRestTransport", () => {
   })
 
   test("maps invalid bearer token responses to auth errors", async () => {
+    let loginStarts = 0
     const transport = new KiroRestTransport(
       { region: "us-east-1", accessToken: "bad-token" },
       {
         fetcher: async () => new Response(JSON.stringify({ message: "invalid token" }), { status: 403 }),
+        loginStarter: () => {
+          loginStarts += 1
+        },
       },
     )
 
@@ -213,5 +217,25 @@ describe("KiroRestTransport", () => {
       code: "KIRO_AUTH_ERROR",
       status: 403,
     })
+    expect(loginStarts).toBe(1)
+  })
+
+  test("starts login when no direct REST credential is available", async () => {
+    let loginStarts = 0
+    const transport = new KiroRestTransport(
+      { region: "us-east-1" },
+      {
+        credentialProvider: async () => undefined,
+        loginStarter: () => {
+          loginStarts += 1
+        },
+      },
+    )
+
+    await expect(transport.generate(request)).rejects.toMatchObject({
+      code: "KIRO_AUTH_ERROR",
+      status: 401,
+    })
+    expect(loginStarts).toBe(1)
   })
 })

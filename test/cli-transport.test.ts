@@ -100,7 +100,13 @@ describe("KiroCliChatTransport", () => {
 
   test("maps cli failures to plugin errors", async () => {
     const runner: CommandRunner = async () => ({ ok: false, stdout: "", stderr: "not logged in" })
-    const transport = new KiroCliChatTransport({ runner })
+    let loginStarts = 0
+    const transport = new KiroCliChatTransport({
+      runner,
+      loginStarter: () => {
+        loginStarts += 1
+      },
+    })
 
     await expect(transport.generate(request)).rejects.toThrow("not logged in")
     try {
@@ -109,6 +115,7 @@ describe("KiroCliChatTransport", () => {
       expect((error as { code?: string; status?: number }).code).toBe("KIRO_AUTH_ERROR")
       expect((error as { code?: string; status?: number }).status).toBe(401)
     }
+    expect(loginStarts).toBe(2)
   })
 
   test("rejects empty successful cli output", async () => {

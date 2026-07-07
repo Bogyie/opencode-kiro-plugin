@@ -1,5 +1,5 @@
 import type { CommandRunner } from "./auth.js"
-import { runCommand } from "./auth.js"
+import { runCommand, startKiroCliLoginOnce } from "./auth.js"
 import { KiroPluginError } from "./errors.js"
 import type { KiroTransport } from "./fetch-adapter.js"
 import type { KiroGenerateRequest } from "./request-adapter.js"
@@ -9,6 +9,7 @@ import { spawn, type ChildProcess } from "node:child_process"
 export interface CliChatTransportOptions {
   readonly runner?: CommandRunner
   readonly spawner?: CliChatSpawner
+  readonly loginStarter?: () => void
   readonly trustAllTools?: boolean
   readonly requestTimeoutMs?: number
 }
@@ -103,14 +104,26 @@ class AsyncQueue<T> implements AsyncIterable<T> {
 export class KiroCliChatTransport implements KiroTransport {
   readonly #runner: CommandRunner
   readonly #spawner: CliChatSpawner
+  readonly #loginStarter: () => void
   readonly #trustAllTools: boolean
   readonly #requestTimeoutMs: number
 
   constructor(options: CliChatTransportOptions = {}) {
     this.#runner = options.runner ?? runCommand
     this.#spawner = options.spawner ?? ((command, args) => spawn(command, [...args], { stdio: ["ignore", "pipe", "pipe"] }))
+    this.#loginStarter = options.loginStarter ?? (() => {
+      startKiroCliLoginOnce()
+    })
     this.#trustAllTools = options.trustAllTools === true
     this.#requestTimeoutMs = options.requestTimeoutMs ?? 120_000
+  }
+
+  #startLoginAfterAuthFailure(): void {
+    try {
+      this.#loginStarter()
+    } catch {
+      // Keep the original model-call auth error visible to OpenCode.
+    }
   }
 
   async generate(request: KiroGenerateRequest): Promise<KiroGenerateResponse> {
@@ -119,6 +132,7 @@ export class KiroCliChatTransport implements KiroTransport {
     })
     if (!result.ok) {
       const authError = result.stderr.toLowerCase().includes("not logged in")
+      if (authError) this.#startLoginAfterAuthFailure()
       throw new KiroPluginError(
         result.stderr.trim() || "kiro-cli chat failed",
         authError ? "KIRO_AUTH_ERROR" : "KIRO_CLI_FAILED",
@@ -176,6 +190,7 @@ export class KiroCliChatTransport implements KiroTransport {
         return
       }
       const authError = stderr.toLowerCase().includes("not logged in")
+      if (authError) this.#startLoginAfterAuthFailure()
       queue.fail(
         new KiroPluginError(
           stderr.trim() || `kiro-cli chat exited${code === null ? "" : ` with code ${code}`}${signal ? ` and signal ${signal}` : ""}`,

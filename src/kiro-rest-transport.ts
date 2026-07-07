@@ -2,6 +2,7 @@ import { KiroPluginError } from "./errors.js"
 import {
   readKiroCliSessionCredential,
   regionFromProfileArn,
+  startKiroCliLoginOnce,
   type KiroCliSessionCredential,
 } from "./auth.js"
 import type { KiroTransport } from "./fetch-adapter.js"
@@ -25,6 +26,7 @@ export type KiroRestFetch = (input: RequestInfo | URL, init?: RequestInit) => Pr
 export interface KiroRestTransportDependencies {
   readonly fetcher?: KiroRestFetch
   readonly credentialProvider?: KiroCredentialProvider
+  readonly loginStarter?: () => void
 }
 
 interface ResolvedCredentials {
@@ -361,17 +363,30 @@ export class KiroRestTransport implements KiroTransport {
   readonly #options: KiroRestTransportOptions
   readonly #fetcher: KiroRestFetch
   readonly #credentialProvider: KiroCredentialProvider
+  readonly #loginStarter: () => void
 
   constructor(options: KiroRestTransportOptions, dependencies: KiroRestTransportDependencies = {}) {
     this.#options = options
     this.#fetcher = dependencies.fetcher ?? fetch
     this.#credentialProvider = dependencies.credentialProvider ?? (() => readKiroCliSessionCredential())
+    this.#loginStarter = dependencies.loginStarter ?? (() => {
+      startKiroCliLoginOnce()
+    })
+  }
+
+  #startLoginAfterAuthFailure(): void {
+    try {
+      this.#loginStarter()
+    } catch {
+      // Keep the original model-call auth error visible to OpenCode.
+    }
   }
 
   async #credentials(): Promise<ResolvedCredentials> {
     const session = this.#options.accessToken ? undefined : await this.#credentialProvider()
     const accessToken = this.#options.accessToken ?? session?.accessToken
     if (!accessToken) {
+      this.#startLoginAfterAuthFailure()
       throw new KiroPluginError(
         "No Kiro API token or Kiro CLI session token found. Connect Kiro from OpenCode's provider connector or run `kiro-cli login`.",
         "KIRO_AUTH_ERROR",
@@ -411,6 +426,7 @@ export class KiroRestTransport implements KiroTransport {
         const code = response.status === 401 || response.status === 403 ? "KIRO_AUTH_ERROR" : response.status === 429 ? "KIRO_RATE_LIMIT" : "KIRO_UPSTREAM_ERROR"
         lastError = new KiroPluginError(message, code, response.status)
         if (response.status === 429 || response.status >= 500) continue
+        if (code === "KIRO_AUTH_ERROR") this.#startLoginAfterAuthFailure()
         throw lastError
       }
 
