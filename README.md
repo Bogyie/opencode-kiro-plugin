@@ -38,9 +38,9 @@ The plugin resolves credentials in this order:
 3. Local Kiro CLI session token from the Kiro CLI SQLite store
 4. `kiro-cli whoami` diagnostics for CLI session visibility
 
-When no usable Kiro CLI session is available, OpenCode's startup model discovery does not start browser login. If startup discovery cannot list models, the plugin keeps Kiro visible with an `auto` placeholder model.
+OpenCode startup does not start Kiro login. The provider is registered immediately with an `auto` placeholder model, then model discovery warms the in-memory cache in the background. If discovery succeeds, later model-list requests use the latest cached list; if discovery fails, the previous cache remains in use and Kiro stays visible with `auto`.
 
-You can open OpenCode's provider connector, choose Kiro, and select `Kiro device login`. The connector uses AWS OIDC device authorization directly, so it does not rely on a localhost callback URL. After login succeeds, the plugin stores the access token, refresh token, OIDC client credentials, region, and optional profile ARN in OpenCode auth. Direct fetch mode reuses that stored credential and refreshes the access token before expiry; it does not ask you to log in again while the refresh token remains valid. If no OpenCode device credential or API key is configured, direct fetch reads the active Kiro CLI session token and calls Kiro's REST/EventStream endpoint directly. `cli-chat` mode uses the official `kiro-cli chat --no-interactive` surface and depends on the local Kiro CLI login state. `acp` mode uses the official `kiro-cli acp` surface, but is still treated as an explicit backend while its real-world protocol behavior is validated across Kiro CLI versions.
+You can open OpenCode's provider connector, choose Kiro, and select `Kiro device login`. The connector uses AWS OIDC device authorization directly, so it does not rely on a localhost callback URL. After login succeeds, the plugin stores the access token, refresh token, OIDC client credentials, region, and optional profile ARN in OpenCode auth. Direct fetch mode reuses that stored credential and refreshes the access token before expiry; it does not ask you to log in again while the refresh token remains valid. If no OpenCode device credential or API key is configured, direct fetch reads the active Kiro CLI session token and calls Kiro's REST/EventStream endpoint directly. If an API/model call fails with an auth error, the selected transport starts the Kiro login flow and retries the request once. `cli-chat` mode uses the official `kiro-cli chat --no-interactive` surface and depends on the local Kiro CLI login state. `acp` mode uses the official `kiro-cli acp` surface, but is still treated as an explicit backend while its real-world protocol behavior is validated across Kiro CLI versions.
 
 For AWS IAM Identity Center login, configure the default device-flow Start URL separately from the API region:
 
@@ -105,7 +105,7 @@ Supported values:
 
 ## Model Churn Handling
 
-The resolver intentionally avoids a hard whitelist. By default, the plugin reads the current Kiro CLI model list with `kiro-cli chat --list-models --format json`. Runtime discovery is the source of truth for the model picker; if discovery cannot return any models, the plugin exposes an `auto` placeholder so OpenCode keeps the Kiro provider visible for connection.
+The resolver intentionally avoids a hard whitelist. Startup always begins with the `auto` placeholder so OpenCode can show Kiro without waiting for Kiro auth or model discovery. By default, the plugin then reads the current Kiro CLI model list with `kiro-cli chat --list-models --format json` in the background. Runtime discovery is the source of truth for the model picker once it has succeeded; failed refreshes do not clear the last successful cache.
 
 Useful options:
 
@@ -151,11 +151,11 @@ Resolution order:
 6. Hidden/manual model mapping
 7. Optimistic pass-through unless disabled
 
-This keeps new Kiro model ids usable before the package is updated without advertising unavailable models in OpenCode's picker. Use `extraModels` only when you explicitly want a model to appear even though it is not listed by your installed Kiro CLI. Set `disableModelPassThrough: true` only when you need strict model governance.
+This keeps new Kiro model ids usable before the package is updated without advertising unavailable models in OpenCode's picker after discovery has succeeded. Use `extraModels` only when you explicitly want a model to appear even though it is not listed by your installed Kiro CLI. Set `disableModelPassThrough: true` only when you need strict model governance.
 
 The plugin injects `provider.kiro` automatically. You only need to add `provider.kiro.models` yourself when overriding OpenCode model-picker metadata, such as a display name or context limit. Use plugin `modelAliases` for aliases that should resolve one requested model id to another.
 
-`modelDiscoveryCommand` defaults to `["kiro-cli", "chat", "--list-models", "--format", "json"]`. Set `modelDiscovery` to `"off"` to skip runtime discovery. If this command fails during startup, the provider remains visible with the `auto` placeholder and you can connect Kiro through OpenCode's provider connector. Discovery stdout can be a JSON array, `{ "models": [...] }`, `{ "data": [...] }`, Kiro CLI list-models JSON, Kiro CLI plain list output, or one model id per line.
+`modelDiscoveryCommand` defaults to `["kiro-cli", "chat", "--list-models", "--format", "json"]`. Set `modelDiscovery` to `"off"` to skip runtime discovery. Discovery is best-effort and never starts login during OpenCode startup; authenticate manually through the connector or let an API/model request handle auth failure. Discovery stdout can be a JSON array, `{ "models": [...] }`, `{ "data": [...] }`, Kiro CLI list-models JSON, Kiro CLI plain list output, or one model id per line.
 
 ## Troubleshooting
 

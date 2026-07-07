@@ -14,6 +14,30 @@ const input = {
 
 const withoutDiscovery = { modelDiscovery: "off" } as const
 
+async function providerModels(hooks: Awaited<ReturnType<ReturnType<typeof createKiroPlugin>>>, models: Record<string, unknown> = {}) {
+  return hooks.provider?.models?.(
+    {
+      id: "kiro",
+      name: "Kiro",
+      models,
+    } as any,
+    {},
+  )
+}
+
+async function waitForProviderModel(
+  hooks: Awaited<ReturnType<ReturnType<typeof createKiroPlugin>>>,
+  modelID: string,
+): Promise<any> {
+  let models: any
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    models = await providerModels(hooks)
+    if (models?.[modelID]) return models
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+  return models
+}
+
 describe("Kiro plugin", () => {
   test("selects direct fetch as the auto backend", () => {
     const original = process.env.KIRO_API_KEY
@@ -125,7 +149,7 @@ describe("Kiro plugin", () => {
     await hooks.dispose?.()
   })
 
-  test("injects discovered models into provider config so the picker can show Kiro", async () => {
+  test("keeps startup config on auto while discovered models warm in the background", async () => {
     const hooks = await createKiroPlugin()(input, {
       modelDiscoveryCommand: [
         process.execPath,
@@ -137,8 +161,10 @@ describe("Kiro plugin", () => {
 
     await hooks.config?.(config)
 
-    expect(config.provider.kiro.models["claude-sonnet-5"].name).toBe("claude-sonnet-5")
-    expect(config.provider.kiro.models["claude-sonnet-5"].limit).toEqual({
+    expect(config.provider.kiro.models).toEqual({ auto: { name: "Auto" } })
+    const models = await waitForProviderModel(hooks, "claude-sonnet-5")
+    expect(models?.["claude-sonnet-5"].name).toBe("claude-sonnet-5")
+    expect(models?.["claude-sonnet-5"].limit).toEqual({
       context: 1_000_000,
       output: 64_000,
     })
@@ -154,14 +180,7 @@ describe("Kiro plugin", () => {
     await hooks.config?.(config)
 
     expect(config.provider.kiro.models.auto).toEqual({ name: "Auto" })
-    const models = await hooks.provider?.models?.(
-      {
-        id: "kiro",
-        name: "Kiro",
-        models: {},
-      } as any,
-      {},
-    )
+    const models = await providerModels(hooks)
     expect(models?.auto?.api.id).toBe("auto")
     expect(models?.auto?.api.npm).toBe("@ai-sdk/openai-compatible")
     await hooks.dispose?.()
@@ -196,17 +215,10 @@ describe("Kiro plugin", () => {
       },
     }
     await hooks.config?.(config)
-    const models = await hooks.provider?.models?.(
-      {
-        id: "kiro",
-        name: "Kiro",
-        models: {
-          auto: { name: "Auto" },
-          "claude-fable-5": { name: "Stale Fable" },
-        },
-      } as any,
-      {},
-    )
+    const models = await providerModels(hooks, {
+      auto: { name: "Auto" },
+      "claude-fable-5": { name: "Stale Fable" },
+    })
 
     expect(models?.auto?.api.id).toBe("auto")
     expect(models?.auto?.api.npm).toBe("@ai-sdk/openai-compatible")
@@ -232,16 +244,9 @@ describe("Kiro plugin", () => {
     }
 
     await hooks.config?.(config)
-    const models = await hooks.provider?.models?.(
-      {
-        id: "kiro",
-        name: "Kiro",
-        models: {
-          auto: { name: "Auto" },
-        },
-      } as any,
-      {},
-    )
+    const models = await providerModels(hooks, {
+      auto: { name: "Auto" },
+    })
 
     expect(config.provider.kiro.api.startsWith("http://127.0.0.1:")).toBe(true)
     expect(models?.auto?.api.url.startsWith("http://127.0.0.1:")).toBe(true)
@@ -256,14 +261,7 @@ describe("Kiro plugin", () => {
         "console.log(JSON.stringify({models:[{id:'new-model-1',name:'New Model 1',context_window_tokens:123456}]}))",
       ],
     })
-    const models = await hooks.provider?.models?.(
-      {
-        id: "kiro",
-        name: "Kiro",
-        models: {},
-      } as any,
-      {},
-    )
+    const models = await waitForProviderModel(hooks, "new-model-1")
 
     expect(models?.["new-model-1"]?.name).toBe("New Model 1")
     expect(models?.["new-model-1"]?.limit).toEqual({
@@ -274,6 +272,27 @@ describe("Kiro plugin", () => {
     expect(models?.["new-model-1"]?.api.npm).toBe("@ai-sdk/openai-compatible")
     expect(models?.["new-model-1"]?.api.url.startsWith("http://127.0.0.1:")).toBe(true)
     expect(models?.["claude-fable-5"]).toBeUndefined()
+    await hooks.dispose?.()
+  })
+
+  test("explicit extra models do not suppress runtime discovery", async () => {
+    const hooks = await createKiroPlugin()(input, {
+      extraModels: {
+        "manual-model": { name: "Manual Model" },
+      },
+      modelDiscoveryCommand: [
+        process.execPath,
+        "-e",
+        "console.log(JSON.stringify({models:[{id:'dynamic-model',name:'Dynamic Model'}]}))",
+      ],
+    })
+
+    const first = await providerModels(hooks)
+    expect(first?.["manual-model"]?.name).toBe("Manual Model")
+
+    const models = await waitForProviderModel(hooks, "dynamic-model")
+    expect(models?.["manual-model"]?.name).toBe("Manual Model")
+    expect(models?.["dynamic-model"]?.name).toBe("Dynamic Model")
     await hooks.dispose?.()
   })
 

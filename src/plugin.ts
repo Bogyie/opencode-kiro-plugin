@@ -162,26 +162,28 @@ export function createKiroPlugin(): Plugin {
       modelCache.update(Object.keys(options.extraModels).map((id) => ({ id: normalizeModelName(id) })))
     }
     let discovery: Promise<void> | undefined
-    let discoveryAttempted = false
-    const discoverIfStale = async () => {
-      if (
-        options.modelDiscovery === "off" ||
-        options.modelDiscoveryCommand.length === 0 ||
-        discoveryAttempted
-      ) {
-        return
+    let lastModelDiscoveryAt = 0
+    const refreshModelsIfStale = (): Promise<void> | undefined => {
+      const discoveryIsStale = lastModelDiscoveryAt === 0 || Date.now() - lastModelDiscoveryAt > options.modelCacheTtlSeconds * 1000
+      if (options.modelDiscovery === "off" || options.modelDiscoveryCommand.length === 0 || !discoveryIsStale || discovery) {
+        return discovery
       }
-      discoveryAttempted = true
-      discovery ??= refreshModelCacheFromCommand(
+      discovery = refreshModelCacheFromCommand(
         modelCache,
         options.modelDiscoveryCommand[0] as string,
         options.modelDiscoveryCommand.slice(1),
       )
+        .then((models) => {
+          if (models.length > 0) lastModelDiscoveryAt = Date.now()
+        })
         .catch(() => undefined)
         .then(() => {
           discovery = undefined
         })
-      await discovery
+      return discovery
+    }
+    const refreshModelsInBackground = () => {
+      void refreshModelsIfStale()
     }
     const resolver = new ModelResolver({
       cache: modelCache,
@@ -209,7 +211,7 @@ export function createKiroPlugin(): Plugin {
         localServer = undefined
       },
       config: async (config: MutableConfig) => {
-        await discoverIfStale()
+        refreshModelsInBackground()
         config.provider ??= {}
         config.provider[options.providerID] ??= {}
 
@@ -320,7 +322,6 @@ export function createKiroPlugin(): Plugin {
           },
         ],
         loader: async (auth) => {
-          await discoverIfStale()
           const apiKey = await resolveApiKey(auth)
           const server = await ensureLocalServer()
           return {
@@ -334,7 +335,7 @@ export function createKiroPlugin(): Plugin {
           description: "Show Kiro plugin backend, auth, region, and discovered model status.",
           args: {},
           execute: async () => {
-            await discoverIfStale()
+            refreshModelsInBackground()
             const auth = await detectAuth()
             return {
               title: "Kiro status",
@@ -363,7 +364,7 @@ export function createKiroPlugin(): Plugin {
       provider: {
         id: options.providerID,
         models: async (provider) => {
-          await discoverIfStale()
+          refreshModelsInBackground()
           const existing = modelRecord(provider.models)
           const visibleModels = visibleProviderModels(modelCache, configuredModels, options.hiddenModels, disabledModels)
           const server = await ensureLocalServer()
