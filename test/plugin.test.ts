@@ -606,6 +606,83 @@ describe("Kiro plugin", () => {
     }
   })
 
+  test("uses startup device credential instead of local marker or generic bearer for chat calls", async () => {
+    const originalApiKey = process.env.KIRO_API_KEY
+    const originalBrowserOpen = process.env.OPENCODE_KIRO_BROWSER_OPEN
+    const originalFetch = globalThis.fetch
+    const upstreamAuthorizations: string[] = []
+    delete process.env.KIRO_API_KEY
+    process.env.OPENCODE_KIRO_BROWSER_OPEN = "0"
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith("/client/register")) {
+        return new Response(JSON.stringify({ clientId: "client-id", clientSecret: "client-secret" }), {
+          headers: { "content-type": "application/json" },
+        })
+      }
+      if (url.endsWith("/device_authorization")) {
+        return new Response(
+          JSON.stringify({
+            verificationUri: "https://device.example",
+            verificationUriComplete: "https://device.example/?user_code=ABCD-EFGH",
+            userCode: "ABCD-EFGH",
+            deviceCode: "device-code",
+            interval: 0.001,
+            expiresIn: 1,
+          }),
+          { headers: { "content-type": "application/json" } },
+        )
+      }
+      if (url.endsWith("/token")) {
+        return new Response(JSON.stringify({ access_token: "device-access", refresh_token: "refresh", expires_in: 3600 }), {
+          headers: { "content-type": "application/json" },
+        })
+      }
+      if (url.endsWith("/generateAssistantResponse")) {
+        upstreamAuthorizations.push(new Headers(init?.headers).get("authorization") ?? "")
+        return new Response(JSON.stringify({ message: "stop" }), { status: 500 })
+      }
+      return new Response("unexpected", { status: 500 })
+    }) as typeof fetch
+
+    try {
+      const hooks = await createKiroPlugin()(input, {
+        ...withoutDiscovery,
+        login: {
+          method: "organization",
+          identityProvider: "https://example.awsapps.com/start",
+          region: "ap-northeast-2",
+        },
+      })
+      const config: any = {}
+      await hooks.config?.(config)
+      const loaded = await hooks.auth?.loader?.(
+        async () => ({ type: "oauth", access: "plain-opencode-oauth-token", refresh: "refresh", expires: Date.now() + 3600_000 }),
+        {} as any,
+      )
+
+      const response = await loaded?.fetch("http://local.test/v1/chat/completions", {
+        method: "POST",
+        headers: { authorization: "Bearer kiro-plugin-local-transport" },
+        body: JSON.stringify({
+          model: "auto",
+          messages: [{ role: "user", content: "hello" }],
+        }),
+      })
+
+      expect(response?.status).toBe(500)
+      expect(upstreamAuthorizations.length).toBeGreaterThan(0)
+      expect(upstreamAuthorizations.every((value) => value === "Bearer device-access")).toBe(true)
+      await hooks.dispose?.()
+    } finally {
+      if (originalApiKey === undefined) delete process.env.KIRO_API_KEY
+      else process.env.KIRO_API_KEY = originalApiKey
+      if (originalBrowserOpen === undefined) delete process.env.OPENCODE_KIRO_BROWSER_OPEN
+      else process.env.OPENCODE_KIRO_BROWSER_OPEN = originalBrowserOpen
+      globalThis.fetch = originalFetch
+    }
+  })
+
   test("serves /v1/models from discovery cache fallback without invoking chat transport", async () => {
     const directory = mkdtempSync(join(tmpdir(), "opencode-kiro-model-route-"))
     const counter = join(directory, "count")

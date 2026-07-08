@@ -108,6 +108,18 @@ function bearerToken(init: RequestInit | undefined): string | undefined {
   return match?.[1] || undefined
 }
 
+function isLikelyKiroApiKey(value: string | undefined): boolean {
+  return Boolean(value?.startsWith("ksk_"))
+}
+
+function localAccessToken(incoming: string | undefined, fallback: string | undefined): string | undefined {
+  if (!incoming || incoming === KIRO_LOCAL_TRANSPORT_KEY) return fallback ?? incoming
+  if (isKiroDeviceAuthKey(incoming)) return incoming
+  if (process.env.KIRO_API_KEY && incoming === process.env.KIRO_API_KEY) return incoming
+  if (isLikelyKiroApiKey(incoming)) return incoming
+  return fallback
+}
+
 export function effectiveBackend(options: Pick<KiroPluginOptions, "backend">, accessToken?: string): EffectiveBackend {
   const apiKey = accessToken || process.env.KIRO_API_KEY
   if (options.backend === "acp") return "acp"
@@ -363,7 +375,8 @@ export function createKiroPlugin(): Plugin {
     })
     const localFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       startupDeviceAuthKey ??= sharedDeviceAuthKey
-      const transport = localTransport(options, bearerToken(init) || startupDeviceAuthKey || sharedDeviceAuthKey, {
+      const accessToken = localAccessToken(bearerToken(init), startupDeviceAuthKey || sharedDeviceAuthKey)
+      const transport = localTransport(options, accessToken, {
         loginOnAuthFailure: shouldLoginOnAuthFailure(init),
       })
       return createKiroFetch({
