@@ -378,6 +378,51 @@ describe("Kiro plugin", () => {
     }
   })
 
+  test("runs startup list-models discovery when CLI auth is already available", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "opencode-kiro-startup-discovery-"))
+    const fakeCli = join(directory, "kiro-cli")
+    const log = join(directory, "args")
+    const originalPath = process.env.PATH
+    delete process.env.KIRO_API_KEY
+    writeFileSync(
+      fakeCli,
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('node:fs')",
+        `fs.appendFileSync(${JSON.stringify(log)}, process.argv.slice(2).join(" ") + "\\n")`,
+        'if (process.argv[2] === "whoami") {',
+        '  console.log("dev@example.com")',
+        "  process.exit(0)",
+        "}",
+        'if (process.argv[2] === "chat" && process.argv.includes("--list-models")) {',
+        '  console.log(JSON.stringify({models:[{id:"startup-cli-model",name:"Startup CLI Model"}]}))',
+        "  process.exit(0)",
+        "}",
+        "process.exit(1)",
+      ].join("\n"),
+    )
+    chmodSync(fakeCli, 0o755)
+    process.env.PATH = `${directory}:${originalPath ?? ""}`
+
+    try {
+      const hooks = await createKiroPlugin()(input, { requestTimeoutMs: 1000 })
+      const config: any = {}
+
+      await hooks.config?.(config)
+      const calls = readFileSync(log, "utf8")
+
+      expect(config.provider.kiro.models["startup-cli-model"].name).toBe("Startup CLI Model")
+      expect(calls).toContain("whoami")
+      expect(calls).toContain("chat --list-models --format json")
+      expect(calls).not.toContain("login")
+      await hooks.dispose?.()
+    } finally {
+      if (originalPath === undefined) delete process.env.PATH
+      else process.env.PATH = originalPath
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
   test("uses stored model cache during startup when discovery fails", async () => {
     const directory = mkdtempSync(join(tmpdir(), "opencode-kiro-model-cache-"))
     const cachePath = join(directory, "models.json")
@@ -481,27 +526,78 @@ describe("Kiro plugin", () => {
     await hooks.dispose?.()
   })
 
-  test("does not start browser login during startup discovery auth failures", async () => {
-    const marker = tempMarker()
-    const hooks = await createKiroPlugin()(input, {
-      modelDiscoveryCommand: marker.command,
-      login: {
-        license: "pro",
-        identityProvider: "https://example.awsapps.com/start",
-        region: "ap-northeast-2",
-      },
-    })
-    const config: any = {}
+  test("uses direct IAM Identity Center device auth during startup and exposes the credential", async () => {
+    const originalApiKey = process.env.KIRO_API_KEY
+    const originalBrowserOpen = process.env.OPENCODE_KIRO_BROWSER_OPEN
+    const originalFetch = globalThis.fetch
+    const calls: string[] = []
+    delete process.env.KIRO_API_KEY
+    process.env.OPENCODE_KIRO_BROWSER_OPEN = "0"
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      calls.push(`${init?.method ?? "GET"} ${url}`)
+      if (url.endsWith("/client/register")) {
+        return new Response(JSON.stringify({ clientId: "client-id", clientSecret: "client-secret" }), {
+          headers: { "content-type": "application/json" },
+        })
+      }
+      if (url.endsWith("/device_authorization")) {
+        expect(JSON.parse(String(init?.body))).toMatchObject({
+          startUrl: "https://example.awsapps.com/start",
+        })
+        return new Response(
+          JSON.stringify({
+            verificationUri: "https://device.example",
+            verificationUriComplete: "https://device.example/?user_code=ABCD-EFGH",
+            userCode: "ABCD-EFGH",
+            deviceCode: "device-code",
+            interval: 0.001,
+            expiresIn: 1,
+          }),
+          { headers: { "content-type": "application/json" } },
+        )
+      }
+      if (url.endsWith("/token")) {
+        return new Response(JSON.stringify({ access_token: "access", refresh_token: "refresh", expires_in: 3600 }), {
+          headers: { "content-type": "application/json" },
+        })
+      }
+      return new Response("unexpected", { status: 500 })
+    }) as typeof fetch
 
     try {
+      const hooks = await createKiroPlugin()(input, {
+        ...withoutDiscovery,
+        login: {
+          method: "organization",
+          identityProvider: "https://example.awsapps.com/start",
+          region: "ap-northeast-2",
+        },
+      })
+      const config: any = {}
+
       await hooks.config?.(config)
-      await new Promise((resolve) => setTimeout(resolve, 50))
+      const loaded = await hooks.auth?.loader?.(
+        async () => {
+          throw new Error("not connected")
+        },
+        {} as any,
+      )
 
       expect(config.provider.kiro.models).toEqual({ auto: { name: "Auto" } })
-      expect(existsSync(marker.marker)).toBe(true)
+      expect(loaded?.apiKey?.startsWith("kiro-device:")).toBe(true)
+      expect(calls).toEqual([
+        "POST https://oidc.ap-northeast-2.amazonaws.com/client/register",
+        "POST https://oidc.ap-northeast-2.amazonaws.com/device_authorization",
+        "POST https://oidc.ap-northeast-2.amazonaws.com/token",
+      ])
       await hooks.dispose?.()
     } finally {
-      marker.cleanup()
+      if (originalApiKey === undefined) delete process.env.KIRO_API_KEY
+      else process.env.KIRO_API_KEY = originalApiKey
+      if (originalBrowserOpen === undefined) delete process.env.OPENCODE_KIRO_BROWSER_OPEN
+      else process.env.OPENCODE_KIRO_BROWSER_OPEN = originalBrowserOpen
+      globalThis.fetch = originalFetch
     }
   })
 

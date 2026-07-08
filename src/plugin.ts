@@ -1,5 +1,6 @@
 import type { Hooks, Plugin } from "@opencode-ai/plugin"
 import { tool } from "@opencode-ai/plugin"
+import { spawn } from "node:child_process"
 import { KiroAcpTransport } from "./acp-transport.js"
 import type { KiroAcpTransportOptions } from "./acp-transport.js"
 import {
@@ -143,6 +144,20 @@ function isOrganizationLogin(login: KiroCliLoginOptions): boolean {
   return login.method === "organization" || login.license === "pro" || Boolean(login.identityProvider || login.region)
 }
 
+function isKiroCliModelDiscoveryCommand(command: ReadonlyArray<string>): boolean {
+  const executable = command[0]?.split(/[\\/]/).pop()
+  return executable === "kiro-cli" && command.includes("chat") && command.includes("--list-models")
+}
+
+function openExternalUrl(url: string): void {
+  if (process.env.OPENCODE_KIRO_BROWSER_OPEN === "0") return
+  const command = process.platform === "darwin" ? "open" : process.platform === "win32" ? "cmd" : "xdg-open"
+  const args = process.platform === "win32" ? ["/c", "start", "", url] : [url]
+  const child = spawn(command, args, { detached: true, stdio: "ignore" })
+  child.on("error", () => undefined)
+  child.unref()
+}
+
 function loginPrompts(options: KiroPluginOptions): AuthPrompt[] | undefined {
   const prompts: AuthPrompt[] = []
   const login = options.login
@@ -193,6 +208,7 @@ function localTransport(
   const backend = effectiveBackend(options, accessToken)
   const login = () => {
     if (behavior.loginOnAuthFailure === false) return Promise.resolve(false)
+    if (isKiroDeviceAuthKey(accessToken)) return Promise.resolve(false)
     return runKiroLoginFlowOnce({
       login: loginOptions(options.login),
     })
@@ -260,6 +276,7 @@ export function createKiroPlugin(): Plugin {
     }
     let discovery: Promise<CachedModelInfo[]> | undefined
     let lastModelDiscoveryAt = 0
+    let startupDeviceAuthKey: string | undefined
     let startupLogin: Promise<boolean> | undefined
     let startupLoginAttempted = false
     const refreshModels = async (force = false) => {
@@ -268,10 +285,16 @@ export function createKiroPlugin(): Plugin {
         return []
       }
       if (!discovery) {
-        discovery = discoverModelsFromCommand(
-          options.modelDiscoveryCommand[0] as string,
-          options.modelDiscoveryCommand.slice(1),
-        )
+        discovery = (async () => {
+          if (isKiroCliModelDiscoveryCommand(options.modelDiscoveryCommand)) {
+            const auth = await detectAuth().catch(() => undefined)
+            if (!auth?.authenticated) return []
+          }
+          return discoverModelsFromCommand(
+            options.modelDiscoveryCommand[0] as string,
+            options.modelDiscoveryCommand.slice(1),
+          )
+        })()
           .then((models) => {
             if (models.length > 0) {
               lastModelDiscoveryAt = Date.now()
@@ -288,13 +311,30 @@ export function createKiroPlugin(): Plugin {
       return discovery
     }
     const ensureStartupAuthenticated = async () => {
+      if (startupDeviceAuthKey) return true
       const current = await detectAuth().catch(() => undefined)
       if (current?.authenticated) return true
       if (startupLogin) return startupLogin
       if (startupLoginAttempted) return false
       startupLoginAttempted = true
       startupLogin = (async () => {
-        const session = startKiroCliLoginOnce(loginOptions(options.login))
+        const login = loginOptions(options.login)
+        if (isOrganizationLogin(login) && login.identityProvider) {
+          try {
+            const authorization = await authorizeKiroDevice(login)
+            openExternalUrl(kiroDeviceVerificationUrl(login.identityProvider, authorization.userCode))
+            const credential = await pollKiroDeviceToken(authorization, {
+              region: options.region,
+              ...(options.profileArn ? { profileArn: options.profileArn } : {}),
+            })
+            startupDeviceAuthKey = encodeKiroDeviceAuthKey(credential)
+            return true
+          } catch {
+            return false
+          }
+        }
+
+        const session = startKiroCliLoginOnce(login)
         const prompted = await session.waitForPrompt(options.requestTimeoutMs)
         if (!prompted) return false
         return session.waitForAuth()
@@ -313,7 +353,7 @@ export function createKiroPlugin(): Plugin {
     const ensureLocalServer = async () => {
       if (localServer) return localServer
       const localFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-        const transport = localTransport(options, bearerToken(init), {
+        const transport = localTransport(options, bearerToken(init) || startupDeviceAuthKey, {
           loginOnAuthFailure: shouldLoginOnAuthFailure(init),
         })
         return createKiroFetch({
@@ -344,10 +384,12 @@ export function createKiroPlugin(): Plugin {
                 region: options.region,
                 ...(options.profileArn ? { profileArn: options.profileArn } : {}),
               })
+              const key = encodeKiroDeviceAuthKey(credential)
+              startupDeviceAuthKey = key
               await refreshModels(true).catch(() => [])
               return {
                 type: "success" as const,
-                key: encodeKiroDeviceAuthKey(credential),
+                key,
                 metadata: {
                   source: "kiro-device-auth",
                 },
@@ -436,7 +478,7 @@ export function createKiroPlugin(): Plugin {
           const apiKey = await resolveApiKey(auth)
           const server = await ensureLocalServer()
           return {
-            apiKey: apiKey || KIRO_LOCAL_TRANSPORT_KEY,
+            apiKey: apiKey || startupDeviceAuthKey || KIRO_LOCAL_TRANSPORT_KEY,
             baseURL: server.baseURL,
           }
         },
