@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -16,6 +16,22 @@ const input = {
 } as any
 
 const withoutDiscovery = { modelDiscovery: "off" } as const
+let originalModelCachePath: string | undefined
+let isolatedModelCacheDirectory: string | undefined
+
+beforeEach(() => {
+  originalModelCachePath = process.env.OPENCODE_KIRO_MODEL_CACHE
+  isolatedModelCacheDirectory = mkdtempSync(join(tmpdir(), "opencode-kiro-plugin-test-cache-"))
+  process.env.OPENCODE_KIRO_MODEL_CACHE = join(isolatedModelCacheDirectory, "models.json")
+})
+
+afterEach(() => {
+  if (originalModelCachePath === undefined) delete process.env.OPENCODE_KIRO_MODEL_CACHE
+  else process.env.OPENCODE_KIRO_MODEL_CACHE = originalModelCachePath
+  if (isolatedModelCacheDirectory) rmSync(isolatedModelCacheDirectory, { recursive: true, force: true })
+  isolatedModelCacheDirectory = undefined
+  originalModelCachePath = undefined
+})
 
 async function providerModels(hooks: Awaited<ReturnType<ReturnType<typeof createKiroPlugin>>>, models: Record<string, unknown> = {}) {
   return hooks.provider?.models?.(
