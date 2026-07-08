@@ -584,7 +584,7 @@ function loginMethodSelection(method: KiroCliLoginMethod): string {
     case "github":
       return "\x1B[B\x1B[B\r"
     case "organization":
-      return "\x1B[B\x1B[B\x1B[B\r"
+      return ""
   }
 }
 
@@ -596,6 +596,10 @@ function loginMethodPromptSeen(output: string): boolean {
     output.includes("Use with GitHub") ||
     output.includes("Use with Your Organization")
   )
+}
+
+function loginPromptReady(output: string): boolean {
+  return Boolean(extractKiroLoginCode(output) || firstLoginUrl(output))
 }
 
 export function startKiroCliLogin(
@@ -610,7 +614,14 @@ export function startKiroCliLogin(
   let selectedLoginMethod = false
 
   const maybeSelectLoginMethod = () => {
-    if (!resolved.options.method || selectedLoginMethod || !loginMethodPromptSeen(output)) return
+    if (
+      !resolved.options.method ||
+      resolved.options.method === "organization" ||
+      selectedLoginMethod ||
+      !loginMethodPromptSeen(output)
+    ) {
+      return
+    }
     child.stdin?.write(loginMethodSelection(resolved.options.method))
     selectedLoginMethod = true
   }
@@ -642,19 +653,18 @@ export function startKiroCliLogin(
     async waitForPrompt(timeoutMs = 15_000): Promise<boolean> {
       const deadline = Date.now() + timeoutMs
       while (Date.now() < deadline) {
-        if (extractKiroLoginCode(output)) return true
-        if (firstLoginUrl(output)) return true
+        if (loginPromptReady(output)) return true
         if (exited && exitCode !== 0) return false
         await delay(100)
       }
-      return Boolean(extractKiroLoginCode(output) || firstLoginUrl(output))
+      return loginPromptReady(output)
     },
     async waitForAuth(runner: CommandRunner = runCommand): Promise<boolean> {
       const deadline = Date.now() + 10 * 60 * 1000
       while (Date.now() < deadline) {
         const auth = await detectAuth(process.env, runner)
         if (auth.authenticated) return true
-        if (exited && exitCode !== 0) return false
+        if (exited && exitCode !== 0 && !loginPromptReady(output)) return false
         await delay(2000)
       }
       return false

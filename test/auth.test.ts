@@ -150,6 +150,23 @@ describe("auth diagnostics", () => {
     ])
     expect(
       kiroCliLoginArgs({
+        method: "organization",
+        identityProvider: "https://example.awsapps.com/start",
+        region: "ap-northeast-2",
+        useDeviceFlow: true,
+      }),
+    ).toEqual([
+      "login",
+      "--license",
+      "pro",
+      "--identity-provider",
+      "https://example.awsapps.com/start",
+      "--region",
+      "ap-northeast-2",
+      "--use-device-flow",
+    ])
+    expect(
+      kiroCliLoginArgs({
         license: "pro",
         identityProvider: "https://example.awsapps.com/start",
         region: "ap-northeast-2",
@@ -367,6 +384,35 @@ describe("auth diagnostics", () => {
 
     expect(await session.waitForPrompt(1000)).toBe(true)
     expect(writes).toEqual(["\x1B[B\x1B[B\r"])
+  })
+
+  test("continues waiting for auth after a login URL even if kiro-cli exits non-zero", async () => {
+    const stdout = new PassThrough()
+    const stderr = new PassThrough()
+    const child = new EventEmitter() as EventEmitter & {
+      stdout: PassThrough
+      stderr: PassThrough
+    }
+    child.stdout = stdout
+    child.stderr = stderr
+
+    const session = startKiroCliLogin(() => {
+      queueMicrotask(() => {
+        stdout.write("Open https://app.kiro.dev/signin?redirect_from=kirocli")
+        child.emit("exit", 1)
+      })
+      return child as unknown as ChildProcess
+    })
+
+    expect(await session.waitForPrompt(1000)).toBe(true)
+    let checks = 0
+    const authenticated = await session.waitForAuth(async () => {
+      checks += 1
+      return checks > 1 ? { ok: true, stdout: "dev@example.com", stderr: "" } : { ok: false, stdout: "", stderr: "" }
+    })
+
+    expect(authenticated).toBe(true)
+    expect(checks).toBe(2)
   })
 
   test("reuses an in-flight Kiro CLI device login session", async () => {
