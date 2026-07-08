@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { encodeKiroDeviceAuthKey } from "../src/auth.js"
-import { acpTransportOptions, createKiroPlugin, effectiveBackend, fetchTransportOptions } from "../src/plugin.js"
+import { __resetKiroPluginSharedStateForTest, acpTransportOptions, createKiroPlugin, effectiveBackend, fetchTransportOptions } from "../src/plugin.js"
 
 const input = {
   client: {},
@@ -21,6 +21,7 @@ let isolatedModelCacheDirectory: string | undefined
 let originalApiKey: string | undefined
 
 beforeEach(() => {
+  __resetKiroPluginSharedStateForTest()
   originalModelCachePath = process.env.OPENCODE_KIRO_MODEL_CACHE
   originalApiKey = process.env.KIRO_API_KEY
   isolatedModelCacheDirectory = mkdtempSync(join(tmpdir(), "opencode-kiro-plugin-test-cache-"))
@@ -29,6 +30,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  __resetKiroPluginSharedStateForTest()
   if (originalModelCachePath === undefined) delete process.env.OPENCODE_KIRO_MODEL_CACHE
   else process.env.OPENCODE_KIRO_MODEL_CACHE = originalModelCachePath
   if (originalApiKey === undefined) delete process.env.KIRO_API_KEY
@@ -254,6 +256,8 @@ describe("Kiro plugin", () => {
     expect(config.provider.kiro.name).toBe("Kiro")
     expect(config.provider.kiro.npm).toBe("@ai-sdk/openai-compatible")
     expect(config.provider.kiro.api.startsWith("http://127.0.0.1:")).toBe(true)
+    expect(config.provider.kiro.options.baseURL).toBe(config.provider.kiro.api)
+    expect(config.provider.kiro.options.apiKey).toBe("kiro-plugin-local-transport")
     expect(config.provider.kiro.models.auto.name).toBe("Custom Auto")
     expect(config.provider.kiro.models["claude-sonnet-4.6"]).toBeUndefined()
     await hooks.dispose?.()
@@ -586,6 +590,7 @@ describe("Kiro plugin", () => {
 
       expect(config.provider.kiro.models).toEqual({ auto: { name: "Auto" } })
       expect(loaded?.apiKey?.startsWith("kiro-device:")).toBe(true)
+      expect(loaded?.fetch).toBeFunction()
       expect(calls).toEqual([
         "POST https://oidc.ap-northeast-2.amazonaws.com/client/register",
         "POST https://oidc.ap-northeast-2.amazonaws.com/device_authorization",
@@ -854,6 +859,7 @@ describe("Kiro plugin", () => {
 
       expect(loaded?.apiKey).toBe("env-key")
       expect(loaded?.baseURL?.startsWith("http://127.0.0.1:")).toBe(true)
+      expect(loaded?.fetch).toBeFunction()
       await hooks.dispose?.()
     } finally {
       if (original === undefined) delete process.env.KIRO_API_KEY

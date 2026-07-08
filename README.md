@@ -59,7 +59,7 @@ For personal Kiro login with GitHub:
 }
 ```
 
-For AWS IAM Identity Center login, configure the default device-flow Start URL separately from the API region:
+For AWS IAM Identity Center login, configure the default device-flow Start URL separately from the Kiro LLM API region:
 
 ```jsonc
 {
@@ -67,7 +67,7 @@ For AWS IAM Identity Center login, configure the default device-flow Start URL s
     [
       "@bogyie/opencode-kiro-plugin",
       {
-        "region": "ap-northeast-2",
+        "region": "us-east-1",
         "login": {
           "method": "organization",
           "identityProvider": "https://example.awsapps.com/start",
@@ -79,7 +79,7 @@ For AWS IAM Identity Center login, configure the default device-flow Start URL s
 }
 ```
 
-For IAM Identity Center, configure `login.method: "organization"`, `login.identityProvider`, and `login.region` in plugin options. The connector opens the Identity Center device URL for that Start URL and region, then waits until the device authorization completes.
+For IAM Identity Center, configure `login.method: "organization"`, `login.identityProvider`, and `login.region` in plugin options. The top-level `region` controls the Kiro LLM/API endpoint and should usually remain `us-east-1`; `login.region` controls the IAM Identity Center OIDC/device authorization endpoint, for example `ap-northeast-2`. The connector opens the Identity Center device URL for that Start URL and login region, then waits until the device authorization completes.
 
 Use the `kiro_status` plugin tool to inspect provider id, backend, region, auth method, and discovered model count. Use `kiro_refresh_models` when you explicitly want to run the configured model discovery command and update the in-memory and stored model cache. Secrets are redacted in diagnostics.
 
@@ -182,6 +182,8 @@ The plugin injects `provider.kiro` with the `auto` placeholder needed for OpenCo
 - `KIRO_NETWORK_ERROR`: timeout or connectivity issue to Kiro/AWS endpoints.
 - `KIRO_ACP_TIMEOUT`: ACP did not send a `TurnEnd` notification before the prompt timeout.
 - `KIRO_ACP_PROCESS_ERROR` or `KIRO_ACP_PROCESS_EXITED`: `kiro-cli acp` could not start or exited while a request was pending.
+
+If IAM Identity Center login succeeds but chat requests cannot connect or fail against the LLM endpoint, check that top-level `region` is the Kiro LLM/API region, not necessarily the IAM Identity Center region. A common organization setup is `"region": "us-east-1"` with `"login.region": "ap-northeast-2"`.
 
 Direct fetch mode calls Kiro's `generateAssistantResponse` endpoint and can fall back from the `q` endpoint to the CodeWhisperer endpoint on quota or upstream failures. Tune `maxAttempts` and `requestTimeoutMs` if you need stricter failure boundaries in automation. Fetch mode also accepts `endpoint`, `profileArn`, `userAgent`, and `agentMode` for controlled environments. `cli-chat` uses `requestTimeoutMs` for the `kiro-cli chat --no-interactive` child process, and ACP uses it while waiting for `session/prompt` completion and `TurnEnd`.
 

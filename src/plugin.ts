@@ -40,6 +40,7 @@ const PLACEHOLDER_MODEL: ProviderModelConfig = { name: "Auto" }
 const OPENCODE_AGENT_HEADER = "x-opencode-kiro-agent"
 const LOGIN_SUPPRESSED_AGENTS = new Set(["title"])
 const LOGIN_METHODS = new Set<KiroCliLoginMethod>(["builder-id", "google", "github", "organization"])
+let sharedDeviceAuthKey: string | undefined
 
 function discoveredProviderModels(cache: ModelCache): Record<string, ProviderModelConfig> {
   return Object.fromEntries(
@@ -156,6 +157,15 @@ function openExternalUrl(url: string): void {
   const child = spawn(command, args, { detached: true, stdio: "ignore" })
   child.on("error", () => undefined)
   child.unref()
+}
+
+function rememberDeviceAuthKey(key: string): string {
+  sharedDeviceAuthKey = key
+  return key
+}
+
+export function __resetKiroPluginSharedStateForTest(): void {
+  sharedDeviceAuthKey = undefined
 }
 
 function loginPrompts(options: KiroPluginOptions): AuthPrompt[] | undefined {
@@ -276,7 +286,7 @@ export function createKiroPlugin(): Plugin {
     }
     let discovery: Promise<CachedModelInfo[]> | undefined
     let lastModelDiscoveryAt = 0
-    let startupDeviceAuthKey: string | undefined
+    let startupDeviceAuthKey: string | undefined = sharedDeviceAuthKey
     let startupLogin: Promise<boolean> | undefined
     let startupLoginAttempted = false
     const refreshModels = async (force = false) => {
@@ -311,6 +321,7 @@ export function createKiroPlugin(): Plugin {
       return discovery
     }
     const ensureStartupAuthenticated = async () => {
+      startupDeviceAuthKey ??= sharedDeviceAuthKey
       if (startupDeviceAuthKey) return true
       const current = await detectAuth().catch(() => undefined)
       if (current?.authenticated) return true
@@ -327,7 +338,7 @@ export function createKiroPlugin(): Plugin {
               region: options.region,
               ...(options.profileArn ? { profileArn: options.profileArn } : {}),
             })
-            startupDeviceAuthKey = encodeKiroDeviceAuthKey(credential)
+            startupDeviceAuthKey = rememberDeviceAuthKey(encodeKiroDeviceAuthKey(credential))
             return true
           } catch {
             return false
@@ -350,21 +361,22 @@ export function createKiroPlugin(): Plugin {
       disabledModels: options.disabledModels,
       disablePassThrough: options.disableModelPassThrough,
     })
+    const localFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      startupDeviceAuthKey ??= sharedDeviceAuthKey
+      const transport = localTransport(options, bearerToken(init) || startupDeviceAuthKey || sharedDeviceAuthKey, {
+        loginOnAuthFailure: shouldLoginOnAuthFailure(init),
+      })
+      return createKiroFetch({
+        resolver,
+        models: async () => {
+          await refreshModels(true).catch(() => [])
+          return Object.keys(visibleProviderModels(modelCache, configuredModels, options.hiddenModels, disabledModels))
+        },
+        ...(transport ? { transport } : {}),
+      })(input, init)
+    }
     const ensureLocalServer = async () => {
       if (localServer) return localServer
-      const localFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-        const transport = localTransport(options, bearerToken(init) || startupDeviceAuthKey, {
-          loginOnAuthFailure: shouldLoginOnAuthFailure(init),
-        })
-        return createKiroFetch({
-          resolver,
-          models: async () => {
-            await refreshModels(true).catch(() => [])
-            return Object.keys(visibleProviderModels(modelCache, configuredModels, options.hiddenModels, disabledModels))
-          },
-          ...(transport ? { transport } : {}),
-        })(input, init)
-      }
       localServer = await startLocalKiroServer(localFetch)
       return localServer
     }
@@ -384,7 +396,7 @@ export function createKiroPlugin(): Plugin {
                 region: options.region,
                 ...(options.profileArn ? { profileArn: options.profileArn } : {}),
               })
-              const key = encodeKiroDeviceAuthKey(credential)
+              const key = rememberDeviceAuthKey(encodeKiroDeviceAuthKey(credential))
               startupDeviceAuthKey = key
               await refreshModels(true).catch(() => [])
               return {
@@ -445,6 +457,8 @@ export function createKiroPlugin(): Plugin {
         provider.npm = "@ai-sdk/openai-compatible"
         provider.api = server.baseURL
         provider.options ??= {}
+        provider.options.baseURL = server.baseURL
+        provider.options.apiKey ??= KIRO_LOCAL_TRANSPORT_KEY
         provider.models = visibleProviderModels(modelCache, configuredModels, options.hiddenModels, disabledModels)
       },
       auth: {
@@ -476,10 +490,12 @@ export function createKiroPlugin(): Plugin {
         ],
         loader: async (auth) => {
           const apiKey = await resolveApiKey(auth)
+          startupDeviceAuthKey ??= sharedDeviceAuthKey
           const server = await ensureLocalServer()
           return {
-            apiKey: apiKey || startupDeviceAuthKey || KIRO_LOCAL_TRANSPORT_KEY,
+            apiKey: apiKey || startupDeviceAuthKey || sharedDeviceAuthKey || KIRO_LOCAL_TRANSPORT_KEY,
             baseURL: server.baseURL,
+            fetch: localFetch,
           }
         },
       },
