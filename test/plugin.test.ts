@@ -171,6 +171,71 @@ describe("Kiro plugin", () => {
     expect(hooks.auth?.methods[0]).not.toHaveProperty("prompts")
   })
 
+  test("passes connector Identity Center inputs to Kiro device auth", async () => {
+    const originalApiKey = process.env.KIRO_API_KEY
+    const originalFetch = globalThis.fetch
+    const calls: string[] = []
+    delete process.env.KIRO_API_KEY
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      calls.push(`${init?.method ?? "GET"} ${url}`)
+      if (url.endsWith("/client/register")) {
+        return new Response(JSON.stringify({ clientId: "client-id", clientSecret: "client-secret" }), {
+          headers: { "content-type": "application/json" },
+        })
+      }
+      if (url.endsWith("/device_authorization")) {
+        expect(JSON.parse(String(init?.body))).toMatchObject({
+          startUrl: "https://example.awsapps.com/start",
+        })
+        return new Response(
+          JSON.stringify({
+            verificationUri: "https://device.example",
+            verificationUriComplete: "https://device.example/?user_code=ABCD-EFGH",
+            userCode: "ABCD-EFGH",
+            deviceCode: "device-code",
+            interval: 0.001,
+            expiresIn: 1,
+          }),
+          { headers: { "content-type": "application/json" } },
+        )
+      }
+      if (url.endsWith("/token")) {
+        return new Response(JSON.stringify({ access_token: "access", refresh_token: "refresh", expires_in: 3600 }), {
+          headers: { "content-type": "application/json" },
+        })
+      }
+      return new Response("unexpected", { status: 500 })
+    }) as typeof fetch
+
+    try {
+      const hooks = await createKiroPlugin()(input, { requestTimeoutMs: 1000, modelDiscovery: "off" })
+      const method = hooks.auth?.methods[0]
+      expect(method?.prompts?.map((prompt) => prompt.key)).toEqual(["method", "identityProvider", "region"])
+      const flow = await method?.authorize?.({
+        method: "organization",
+        identityProvider: "https://example.awsapps.com/start",
+        region: "ap-northeast-2",
+      })
+      const oauthFlow = flow as { url: string; callback(): Promise<unknown> }
+      const result = await oauthFlow.callback()
+
+      expect(oauthFlow.url).toBe("https://example.awsapps.com/start/#/device?user_code=ABCD-EFGH")
+      expect(result).toMatchObject({ type: "success", metadata: { source: "kiro-device-auth" } })
+      expect((result as { key?: string }).key?.startsWith("kiro-device:")).toBe(true)
+      expect(calls).toEqual([
+        "POST https://oidc.ap-northeast-2.amazonaws.com/client/register",
+        "POST https://oidc.ap-northeast-2.amazonaws.com/device_authorization",
+        "POST https://oidc.ap-northeast-2.amazonaws.com/token",
+      ])
+      await hooks.dispose?.()
+    } finally {
+      if (originalApiKey === undefined) delete process.env.KIRO_API_KEY
+      else process.env.KIRO_API_KEY = originalApiKey
+      globalThis.fetch = originalFetch
+    }
+  })
+
   test("injects provider config without replacing user model overrides", async () => {
     const hooks = await createKiroPlugin()(input, { ...withoutDiscovery, region: "eu-central-1" })
     const config: any = {

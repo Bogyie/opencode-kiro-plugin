@@ -3,15 +3,20 @@ import { tool } from "@opencode-ai/plugin"
 import { KiroAcpTransport } from "./acp-transport.js"
 import type { KiroAcpTransportOptions } from "./acp-transport.js"
 import {
+  authorizeKiroDevice,
   credentialFromKiroDeviceAuthKey,
   detectAuth,
+  encodeKiroDeviceAuthKey,
   isKiroDeviceAuthKey,
+  kiroDeviceVerificationUrl,
   KIRO_LOCAL_TRANSPORT_KEY,
+  pollKiroDeviceToken,
   readKiroCliSessionCredential,
   resolveApiKey,
   startKiroCliLoginOnce,
   runKiroLoginFlowOnce,
 } from "./auth.js"
+import type { KiroCliLoginMethod, KiroCliLoginOptions } from "./auth.js"
 import { KiroCliChatTransport } from "./cli-transport.js"
 import { loadOptions } from "./config.js"
 import type { KiroPluginOptions } from "./config.js"
@@ -28,10 +33,12 @@ import type { ProviderModelConfig } from "./models.js"
 
 type MutableConfig = Record<string, any>
 type EffectiveBackend = "fetch" | "cli-chat" | "acp" | "none"
+type AuthPrompt = NonNullable<NonNullable<Hooks["auth"]>["methods"][number]["prompts"]>[number]
 const PLACEHOLDER_MODEL_ID = "auto"
 const PLACEHOLDER_MODEL: ProviderModelConfig = { name: "Auto" }
 const OPENCODE_AGENT_HEADER = "x-opencode-kiro-agent"
 const LOGIN_SUPPRESSED_AGENTS = new Set(["title"])
+const LOGIN_METHODS = new Set<KiroCliLoginMethod>(["builder-id", "google", "github", "organization"])
 
 function discoveredProviderModels(cache: ModelCache): Record<string, ProviderModelConfig> {
   return Object.fromEntries(
@@ -113,6 +120,71 @@ function shouldLoginOnAuthFailure(init: RequestInit | undefined): boolean {
   return !agent || !LOGIN_SUPPRESSED_AGENTS.has(agent)
 }
 
+function inputString(inputs: Record<string, string> | undefined, key: string): string | undefined {
+  const value = inputs?.[key]?.trim()
+  return value || undefined
+}
+
+function loginOptions(base: KiroCliLoginOptions, inputs?: Record<string, string>): KiroCliLoginOptions {
+  const inputMethod = inputString(inputs, "method")
+  const method = inputMethod && LOGIN_METHODS.has(inputMethod as KiroCliLoginMethod) ? (inputMethod as KiroCliLoginMethod) : undefined
+  const identityProvider = inputString(inputs, "identityProvider")
+  const region = inputString(inputs, "region")
+  return {
+    ...base,
+    ...(method ? { method } : {}),
+    ...(identityProvider ? { identityProvider } : {}),
+    ...(region ? { region } : {}),
+    useDeviceFlow: true,
+  }
+}
+
+function isOrganizationLogin(login: KiroCliLoginOptions): boolean {
+  return login.method === "organization" || login.license === "pro" || Boolean(login.identityProvider || login.region)
+}
+
+function loginPrompts(options: KiroPluginOptions): AuthPrompt[] | undefined {
+  const prompts: AuthPrompt[] = []
+  const login = options.login
+  const hasLoginRoute = Boolean(login.method || login.license || login.identityProvider || login.region)
+  if (!hasLoginRoute) {
+    prompts.push({
+      type: "select",
+      key: "method",
+      message: "Select Kiro login method",
+      options: [
+        { label: "Use with Builder ID", value: "builder-id" },
+        { label: "Use with Google", value: "google" },
+        { label: "Use with GitHub", value: "github" },
+        { label: "Use with Your Organization", value: "organization" },
+      ],
+    })
+  }
+  const organizationIsConfigured = login.method === "organization" || login.license === "pro" || Boolean(login.identityProvider || login.region)
+  const organizationWhen = hasLoginRoute ? undefined : { key: "method", op: "eq" as const, value: "organization" }
+  if (organizationIsConfigured || !hasLoginRoute) {
+    if (!login.identityProvider) {
+      prompts.push({
+        type: "text",
+        key: "identityProvider",
+        message: "IAM Identity Center Start URL",
+        placeholder: "https://example.awsapps.com/start",
+        ...(organizationWhen ? { when: organizationWhen } : {}),
+      })
+    }
+    if (!login.region) {
+      prompts.push({
+        type: "text",
+        key: "region",
+        message: "IAM Identity Center region",
+        placeholder: "ap-northeast-2",
+        ...(organizationWhen ? { when: organizationWhen } : {}),
+      })
+    }
+  }
+  return prompts.length > 0 ? prompts : undefined
+}
+
 function localTransport(
   options: KiroPluginOptions,
   accessToken?: string,
@@ -122,10 +194,7 @@ function localTransport(
   const login = () => {
     if (behavior.loginOnAuthFailure === false) return Promise.resolve(false)
     return runKiroLoginFlowOnce({
-      login: {
-        ...options.login,
-        useDeviceFlow: true,
-      },
+      login: loginOptions(options.login),
     })
   }
   if (backend === "acp") return new KiroAcpTransport(acpTransportOptions(options))
@@ -225,10 +294,7 @@ export function createKiroPlugin(): Plugin {
       if (startupLoginAttempted) return false
       startupLoginAttempted = true
       startupLogin = (async () => {
-        const session = startKiroCliLoginOnce({
-          ...options.login,
-          useDeviceFlow: true,
-        })
+        const session = startKiroCliLoginOnce(loginOptions(options.login))
         const prompted = await session.waitForPrompt(options.requestTimeoutMs)
         if (!prompted) return false
         return session.waitForAuth()
@@ -263,11 +329,37 @@ export function createKiroPlugin(): Plugin {
       return localServer
     }
 
-    const authorizeCliDeviceLogin = async () => {
-      const session = startKiroCliLoginOnce({
-        ...options.login,
-        useDeviceFlow: true,
-      })
+    const authorizeCliDeviceLogin = async (inputs?: Record<string, string>) => {
+      const login = loginOptions(options.login, inputs)
+      if (isOrganizationLogin(login) && login.identityProvider) {
+        const authorization = await authorizeKiroDevice(login)
+        const url = kiroDeviceVerificationUrl(login.identityProvider, authorization.userCode)
+        return {
+          url,
+          instructions: `Open ${url} and confirm code: ${authorization.userCode}`,
+          method: "auto" as const,
+          callback: async () => {
+            try {
+              const credential = await pollKiroDeviceToken(authorization, {
+                region: options.region,
+                ...(options.profileArn ? { profileArn: options.profileArn } : {}),
+              })
+              await refreshModels(true).catch(() => [])
+              return {
+                type: "success" as const,
+                key: encodeKiroDeviceAuthKey(credential),
+                metadata: {
+                  source: "kiro-device-auth",
+                },
+              }
+            } catch {
+              return { type: "failed" as const }
+            }
+          },
+        }
+      }
+
+      const session = startKiroCliLoginOnce(login)
       await session.waitForPrompt(options.requestTimeoutMs)
       return {
         url: session.url,
@@ -287,6 +379,8 @@ export function createKiroPlugin(): Plugin {
         },
       }
     }
+
+    const authPrompts = loginPrompts(options)
 
     return {
       dispose: async () => {
@@ -317,7 +411,8 @@ export function createKiroPlugin(): Plugin {
           {
             type: "oauth",
             label: "Kiro device login",
-            authorize: async () => authorizeCliDeviceLogin(),
+            ...(authPrompts ? { prompts: authPrompts } : {}),
+            authorize: async (inputs) => authorizeCliDeviceLogin(inputs),
           },
           {
             type: "api",

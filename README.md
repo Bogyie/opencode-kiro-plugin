@@ -79,7 +79,7 @@ For AWS IAM Identity Center login, configure the default device-flow Start URL s
 }
 ```
 
-For IAM Identity Center, configure `login.method: "organization"`, `login.identityProvider`, and `login.region` in plugin options so they are passed to `kiro-cli login --license pro --use-device-flow`.
+For IAM Identity Center, configure `login.method: "organization"`, `login.identityProvider`, and `login.region` in plugin options so they are passed to `kiro-cli login --use-device-flow --license pro --identity-provider <start-url> --region <region>`.
 
 Use the `kiro_status` plugin tool to inspect provider id, backend, region, auth method, and discovered model count. Use `kiro_refresh_models` when you explicitly want to run the configured model discovery command and update the in-memory and stored model cache. Secrets are redacted in diagnostics.
 
@@ -202,6 +202,21 @@ For a real Kiro smoke test that uses your local `kiro-cli` login, runs runtime m
 
 ```sh
 npm run smoke:kiro
+```
+
+For the same real checks under the test runner, including actual `kiro-cli chat --list-models --format json` and real local plugin API calls:
+
+```sh
+npm run test:real
+```
+
+To also run the real IAM Identity Center device login flow and wait for completion, set the explicit opt-in variables:
+
+```sh
+OPENCODE_KIRO_REAL_LOGIN=1 \
+KIRO_REAL_IDENTITY_PROVIDER=https://example.awsapps.com/start \
+KIRO_REAL_IDENTITY_REGION=ap-northeast-2 \
+npm run test:real
 ```
 
 For real Kiro/OpenCode validation, use [docs/e2e-validation.md](docs/e2e-validation.md).

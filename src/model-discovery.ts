@@ -77,15 +77,29 @@ function fromLines(raw: string): CachedModelInfo[] {
     .filter((item): item is CachedModelInfo => item !== undefined)
 }
 
+function jsonCandidates(raw: string): string[] {
+  const trimmed = raw.trim()
+  const candidates = [trimmed]
+  const objectStart = trimmed.indexOf("{")
+  const objectEnd = trimmed.lastIndexOf("}")
+  if (objectStart >= 0 && objectEnd > objectStart) candidates.push(trimmed.slice(objectStart, objectEnd + 1))
+  const arrayStart = trimmed.indexOf("[")
+  const arrayEnd = trimmed.lastIndexOf("]")
+  if (arrayStart >= 0 && arrayEnd > arrayStart) candidates.push(trimmed.slice(arrayStart, arrayEnd + 1))
+  return [...new Set(candidates)]
+}
+
 export function parseDiscoveredModels(raw: string): CachedModelInfo[] {
   const trimmed = raw.trim()
   if (!trimmed) return []
-  try {
-    const parsed = JSON.parse(trimmed) as unknown
-    const models = fromJson(parsed)
-    if (models.length > 0) return dedupe(models)
-  } catch {
-    // Fall back to line parsing below.
+  for (const candidate of jsonCandidates(trimmed)) {
+    try {
+      const parsed = JSON.parse(candidate) as unknown
+      const models = fromJson(parsed)
+      if (models.length > 0) return dedupe(models)
+    } catch {
+      // Try the next JSON candidate, then fall back to line parsing below.
+    }
   }
   return dedupe(fromLines(trimmed))
 }

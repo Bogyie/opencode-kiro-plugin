@@ -56,6 +56,9 @@ export interface KiroLoginSession {
   readonly url: string
   readonly code: string | undefined
   readonly instructions: string
+  readonly output: string
+  readonly exitCode: number | null
+  readonly args: ReadonlyArray<string>
   waitForPrompt(timeoutMs?: number): Promise<boolean>
   waitForAuth(runner?: CommandRunner): Promise<boolean>
 }
@@ -567,11 +570,17 @@ function loginOptionsAndSpawner(
 
 export function kiroCliLoginArgs(options: KiroCliLoginOptions = {}): string[] {
   const args = ["login"]
-  const license = options.license ?? (options.method === "organization" ? "pro" : options.method ? "free" : undefined)
+  const license =
+    options.license ??
+    (options.method === "organization" || options.identityProvider || options.region
+      ? "pro"
+      : options.method
+        ? "free"
+        : undefined)
+  if (options.useDeviceFlow) args.push("--use-device-flow")
   if (license) args.push("--license", license)
   if (options.identityProvider) args.push("--identity-provider", options.identityProvider)
   if (options.region) args.push("--region", options.region)
-  if (options.useDeviceFlow) args.push("--use-device-flow")
   args.push(...(options.extraArgs ?? []))
   return args
 }
@@ -603,16 +612,33 @@ function loginPromptReady(output: string): boolean {
   return Boolean(extractKiroLoginCode(output) || firstLoginUrl(output))
 }
 
+function identityPromptSeen(output: string): boolean {
+  return /enter start url/i.test(output)
+}
+
+function regionPromptSeen(output: string): boolean {
+  return /enter region/i.test(output)
+}
+
+function loginUrl(output: string, options: KiroCliLoginOptions): string {
+  const code = extractKiroLoginCode(output)
+  if (code && options.identityProvider) return kiroDeviceVerificationUrl(options.identityProvider, code)
+  return extractKiroLoginUrl(output)
+}
+
 export function startKiroCliLogin(
   optionsOrSpawner?: KiroCliLoginOptions | ProcessSpawner,
   spawner?: ProcessSpawner,
 ): KiroLoginSession {
   const resolved = loginOptionsAndSpawner(optionsOrSpawner, spawner)
-  const child = resolved.spawner("kiro-cli", kiroCliLoginArgs(resolved.options))
+  const args = kiroCliLoginArgs(resolved.options)
+  const child = resolved.spawner("kiro-cli", args)
   let output = ""
   let exited = false
   let exitCode: number | null = null
   let selectedLoginMethod = false
+  let wroteIdentityProvider = false
+  let wroteRegion = false
 
   const maybeSelectLoginMethod = () => {
     if (
@@ -627,13 +653,26 @@ export function startKiroCliLogin(
     selectedLoginMethod = true
   }
 
+  const maybeAnswerIdentityPrompts = () => {
+    if (resolved.options.identityProvider && !wroteIdentityProvider && identityPromptSeen(output)) {
+      child.stdin?.write(`${resolved.options.identityProvider}\n`)
+      wroteIdentityProvider = true
+    }
+    if (resolved.options.region && !wroteRegion && regionPromptSeen(output)) {
+      child.stdin?.write(`${resolved.options.region}\n`)
+      wroteRegion = true
+    }
+  }
+
   child.stdout?.on("data", (chunk: Buffer) => {
     output += chunk.toString("utf8")
     maybeSelectLoginMethod()
+    maybeAnswerIdentityPrompts()
   })
   child.stderr?.on("data", (chunk: Buffer) => {
     output += chunk.toString("utf8")
     maybeSelectLoginMethod()
+    maybeAnswerIdentityPrompts()
   })
   child.on("exit", (code) => {
     exited = true
@@ -642,14 +681,26 @@ export function startKiroCliLogin(
 
   return {
     get url() {
-      return extractKiroLoginUrl(output)
+      return loginUrl(output, resolved.options)
     },
     get code() {
       return extractKiroLoginCode(output)
     },
     get instructions() {
       const code = extractKiroLoginCode(output)
+      if (code && resolved.options.identityProvider) {
+        return `Open ${kiroDeviceVerificationUrl(resolved.options.identityProvider, code)} and confirm code: ${code}`
+      }
       return code ? `Enter code: ${code}` : "Complete Kiro CLI login in your browser. This window will close automatically."
+    },
+    get output() {
+      return output
+    },
+    get exitCode() {
+      return exitCode
+    },
+    get args() {
+      return args
     },
     async waitForPrompt(timeoutMs = 15_000): Promise<boolean> {
       const deadline = Date.now() + timeoutMs
@@ -694,6 +745,15 @@ export function startKiroCliLoginOnce(
     },
     get instructions() {
       return session.instructions
+    },
+    get output() {
+      return session.output
+    },
+    get exitCode() {
+      return session.exitCode
+    },
+    get args() {
+      return session.args
     },
     waitForPrompt(timeoutMs?: number): Promise<boolean> {
       return session.waitForPrompt(timeoutMs)

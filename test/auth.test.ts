@@ -155,15 +155,15 @@ describe("auth diagnostics", () => {
     expect(kiroCliLoginArgs({ useDeviceFlow: true })).toEqual(["login", "--use-device-flow"])
     expect(kiroCliLoginArgs({ method: "github", useDeviceFlow: true })).toEqual([
       "login",
+      "--use-device-flow",
       "--license",
       "free",
-      "--use-device-flow",
     ])
     expect(kiroCliLoginArgs({ method: "organization", useDeviceFlow: true })).toEqual([
       "login",
+      "--use-device-flow",
       "--license",
       "pro",
-      "--use-device-flow",
     ])
     expect(
       kiroCliLoginArgs({
@@ -174,13 +174,13 @@ describe("auth diagnostics", () => {
       }),
     ).toEqual([
       "login",
+      "--use-device-flow",
       "--license",
       "pro",
       "--identity-provider",
       "https://example.awsapps.com/start",
       "--region",
       "ap-northeast-2",
-      "--use-device-flow",
     ])
     expect(
       kiroCliLoginArgs({
@@ -190,6 +190,22 @@ describe("auth diagnostics", () => {
       }),
     ).toEqual([
       "login",
+      "--license",
+      "pro",
+      "--identity-provider",
+      "https://example.awsapps.com/start",
+      "--region",
+      "ap-northeast-2",
+    ])
+    expect(
+      kiroCliLoginArgs({
+        identityProvider: "https://example.awsapps.com/start",
+        region: "ap-northeast-2",
+        useDeviceFlow: true,
+      }),
+    ).toEqual([
+      "login",
+      "--use-device-flow",
       "--license",
       "pro",
       "--identity-provider",
@@ -376,6 +392,70 @@ describe("auth diagnostics", () => {
         ],
       },
     ])
+  })
+
+  test("uses Identity Center device URL when Kiro CLI prints a code", async () => {
+    const stdout = new PassThrough()
+    const stderr = new PassThrough()
+    const child = new EventEmitter() as EventEmitter & {
+      stdout: PassThrough
+      stderr: PassThrough
+    }
+    child.stdout = stdout
+    child.stderr = stderr
+
+    const session = startKiroCliLogin(
+      {
+        method: "organization",
+        identityProvider: "https://example.awsapps.com/start",
+        region: "ap-northeast-2",
+        useDeviceFlow: true,
+      },
+      () => {
+        queueMicrotask(() => stdout.write("Confirm the following code in the browser\nCode: ABCD-EFGH\nLogging in..."))
+        return child as unknown as ChildProcess
+      },
+    )
+
+    expect(await session.waitForPrompt(1000)).toBe(true)
+    expect(session.url).toBe("https://example.awsapps.com/start/#/device?user_code=ABCD-EFGH")
+    expect(session.instructions).toContain("https://example.awsapps.com/start/#/device?user_code=ABCD-EFGH")
+  })
+
+  test("answers Kiro CLI Identity Center prompts from configured options", async () => {
+    const stdout = new PassThrough()
+    const stderr = new PassThrough()
+    const stdin = new PassThrough()
+    const child = new EventEmitter() as EventEmitter & {
+      stdin: PassThrough
+      stdout: PassThrough
+      stderr: PassThrough
+    }
+    child.stdin = stdin
+    child.stdout = stdout
+    child.stderr = stderr
+    const writes: string[] = []
+    stdin.on("data", (chunk) => writes.push(chunk.toString("utf8")))
+
+    const session = startKiroCliLogin(
+      {
+        method: "organization",
+        identityProvider: "https://example.awsapps.com/start",
+        region: "ap-northeast-2",
+        useDeviceFlow: true,
+      },
+      () => {
+        queueMicrotask(() => {
+          stdout.write("? Enter Start URL\n")
+          stdout.write("? Enter Region\n")
+          stdout.write("Code: ABCD-EFGH\n")
+        })
+        return child as unknown as ChildProcess
+      },
+    )
+
+    expect(await session.waitForPrompt(1000)).toBe(true)
+    expect(writes).toEqual(["https://example.awsapps.com/start\n", "ap-northeast-2\n"])
   })
 
   test("selects configured Kiro CLI login method when the prompt appears", async () => {

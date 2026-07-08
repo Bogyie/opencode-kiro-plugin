@@ -62,6 +62,18 @@ describe("model discovery", () => {
     ])
   })
 
+  test("parses JSON model output with surrounding CLI noise", () => {
+    expect(
+      parseDiscoveredModels(`Loading Kiro models...
+{"models":[{"model_name":"auto","model_id":"auto"},{"model_name":"claude-sonnet-5","model_id":"claude-sonnet-5"}],"default_model":"auto"}
+Done
+`),
+    ).toEqual([
+      { id: "auto", raw: { model_name: "auto", model_id: "auto" } },
+      { id: "claude-sonnet-5", raw: { model_name: "claude-sonnet-5", model_id: "claude-sonnet-5" } },
+    ])
+  })
+
   test("falls back to line based output", () => {
     expect(parseDiscoveredModels("claude-sonnet-4-6\nheading with spaces\nqwen3-coder-next\n")).toEqual([
       { id: "claude-sonnet-4.6", raw: "claude-sonnet-4-6" },

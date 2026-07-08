@@ -67,6 +67,7 @@ describe("package metadata", () => {
     expect(packageJson.scripts?.build).toBe("npm run clean && tsc -p tsconfig.build.json")
     expect(packageJson.scripts?.prepack).toBe("npm run build")
     expect(packageJson.scripts?.["smoke:package"]).toBe("npm run build && node scripts/smoke-package.mjs")
+    expect(packageJson.scripts?.["test:real"]).toBe("OPENCODE_KIRO_REAL=1 bun test test/real-kiro-cli.test.ts")
   })
 
   test("publishes to npm through trusted publishing from main package version bumps", () => {
