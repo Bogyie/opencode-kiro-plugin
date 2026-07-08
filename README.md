@@ -38,9 +38,26 @@ The plugin resolves credentials in this order:
 3. Local Kiro CLI session token from the Kiro CLI SQLite store
 4. `kiro-cli whoami` diagnostics for CLI session visibility
 
-OpenCode startup does not start Kiro login. It does run best-effort model discovery with `kiro-cli chat --list-models --format json` so the model picker can track the current Kiro CLI list. If startup discovery succeeds, the result is stored in a local cache and used immediately. If startup discovery fails, the plugin keeps the last stored model list. If no stored list exists yet, it injects an `auto` placeholder model so Kiro still appears in OpenCode's provider connector.
+During OpenCode startup, the plugin checks Kiro auth in the blocking `config` hook. If no `KIRO_API_KEY` or active `kiro-cli` session exists, it starts the configured `kiro-cli login --use-device-flow` flow once and waits for login to finish before model discovery and provider registration continue. It then runs best-effort model discovery with `kiro-cli chat --list-models --format json` so the model picker can track the current Kiro CLI list. If startup discovery succeeds, the result is stored in a local cache and used immediately. If startup discovery fails, the plugin keeps the last stored model list. If no stored list exists yet, it injects an `auto` placeholder model so Kiro still appears in OpenCode's provider connector.
 
-You can open OpenCode's provider connector, choose Kiro, and select `Kiro device login`. The connector runs `kiro-cli login --use-device-flow`, waits for the local Kiro CLI session to become authenticated, then stores a local transport marker in OpenCode auth. If `login.identityProvider`, `login.region`, `login.license`, or `login.extraArgs` are configured, those options are passed to `kiro-cli login` along with `--use-device-flow`. After login succeeds, the plugin also tries to refresh the runtime model cache. If no OpenCode connector marker or API key is configured, direct fetch still reads the active Kiro CLI session token and calls Kiro's REST/EventStream endpoint directly. If an API/model call fails with an auth error, the selected transport starts the same configured Kiro CLI login flow and retries the request once. `cli-chat` mode uses the official `kiro-cli chat --no-interactive` surface and depends on the local Kiro CLI login state. `acp` mode uses the official `kiro-cli acp` surface, but is still treated as an explicit backend while its real-world protocol behavior is validated across Kiro CLI versions.
+You can open OpenCode's provider connector, choose Kiro, and select `Kiro device login`. The connector runs `kiro-cli login --use-device-flow`, waits for the local Kiro CLI session to become authenticated, then stores a local transport marker in OpenCode auth. Configure `login.method` as `builder-id`, `google`, `github`, or `organization` to preselect the Kiro CLI login method. The plugin maps `builder-id`, `google`, and `github` to `--license free`; it maps `organization` to `--license pro`. If `login.identityProvider`, `login.region`, `login.license`, or `login.extraArgs` are configured, those options are also passed to `kiro-cli login` along with `--use-device-flow`. After login succeeds, the plugin also tries to refresh the runtime model cache. If no OpenCode connector marker or API key is configured, direct fetch still reads the active Kiro CLI session token and calls Kiro's REST/EventStream endpoint directly. If an API/model call fails with an auth error, the selected transport starts the same configured Kiro CLI login flow and retries the request once. `cli-chat` mode uses the official `kiro-cli chat --no-interactive` surface and depends on the local Kiro CLI login state. `acp` mode uses the official `kiro-cli acp` surface, but is still treated as an explicit backend while its real-world protocol behavior is validated across Kiro CLI versions.
+
+For personal Kiro login with GitHub:
+
+```jsonc
+{
+  "plugin": [
+    [
+      "@bogyie/opencode-kiro-plugin",
+      {
+        "login": {
+          "method": "github"
+        }
+      }
+    ]
+  ]
+}
+```
 
 For AWS IAM Identity Center login, configure the default device-flow Start URL separately from the API region:
 
@@ -52,7 +69,7 @@ For AWS IAM Identity Center login, configure the default device-flow Start URL s
       {
         "region": "ap-northeast-2",
         "login": {
-          "license": "pro",
+          "method": "organization",
           "identityProvider": "https://example.awsapps.com/start",
           "region": "ap-northeast-2"
         }
@@ -62,7 +79,7 @@ For AWS IAM Identity Center login, configure the default device-flow Start URL s
 }
 ```
 
-For IAM Identity Center, configure `login.identityProvider` and `login.region` in plugin options so they are passed to `kiro-cli login --use-device-flow`.
+For IAM Identity Center, configure `login.method: "organization"`, `login.identityProvider`, and `login.region` in plugin options so they are passed to `kiro-cli login --license pro --use-device-flow`.
 
 Use the `kiro_status` plugin tool to inspect provider id, backend, region, auth method, and discovered model count. Use `kiro_refresh_models` when you explicitly want to run the configured model discovery command and update the in-memory and stored model cache. Secrets are redacted in diagnostics.
 
@@ -80,7 +97,7 @@ Configure the backend through plugin options:
         "region": "us-east-1",
         // Optional Kiro device login defaults:
         // "login": {
-        //   "license": "pro",
+        //   "method": "organization",
         //   "identityProvider": "https://example.awsapps.com/start",
         //   "region": "ap-northeast-2"
         // },
@@ -155,7 +172,7 @@ This keeps new Kiro model ids usable before the package is updated without adver
 
 The plugin injects `provider.kiro` with the `auto` placeholder needed for OpenCode's provider connector. Define `provider.kiro.models` yourself only when you need explicit model-picker metadata such as a display name or context limit. Use plugin `modelAliases` for aliases that should resolve one requested model id to another.
 
-`modelDiscoveryCommand` defaults to `["kiro-cli", "chat", "--list-models", "--format", "json"]`. Set `modelDiscovery` to `"off"` to disable startup discovery and `kiro_refresh_models`; in that mode the plugin uses any stored cache and then the `auto` fallback. During OpenCode startup, the plugin checks Kiro auth in the blocking `config` hook. If no `KIRO_API_KEY` or active `kiro-cli` session exists, it starts `kiro-cli login --use-device-flow` once and waits for login to finish before model discovery and provider registration continue. `/v1/models` still uses only the discovery/cache path: it never invokes the chat transport or login fallback, and returns the cached list or `auto` if discovery fails. OpenCode title-generation requests also suppress login fallback so startup helper traffic cannot open a second Kiro login window. A successful connector login also triggers a forced model refresh. Discovery stdout can be a JSON array, `{ "models": [...] }`, `{ "data": [...] }`, Kiro CLI list-models JSON, Kiro CLI plain list output, or one model id per line.
+`modelDiscoveryCommand` defaults to `["kiro-cli", "chat", "--list-models", "--format", "json"]`. Set `modelDiscovery` to `"off"` to disable startup discovery and `kiro_refresh_models`; in that mode the plugin uses any stored cache and then the `auto` fallback. During OpenCode startup, the plugin checks Kiro auth in the blocking `config` hook. If no `KIRO_API_KEY` or active `kiro-cli` session exists, it starts the configured `kiro-cli login --use-device-flow` flow once and waits for login to finish before model discovery and provider registration continue. `/v1/models` still uses only the discovery/cache path: it never invokes the chat transport or login fallback, and returns the cached list or `auto` if discovery fails. OpenCode title-generation requests also suppress login fallback so startup helper traffic cannot open a second Kiro login window. A successful connector login also triggers a forced model refresh. Discovery stdout can be a JSON array, `{ "models": [...] }`, `{ "data": [...] }`, Kiro CLI list-models JSON, Kiro CLI plain list output, or one model id per line.
 
 ## Troubleshooting
 

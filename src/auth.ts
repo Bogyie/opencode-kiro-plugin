@@ -60,7 +60,10 @@ export interface KiroLoginSession {
   waitForAuth(runner?: CommandRunner): Promise<boolean>
 }
 
+export type KiroCliLoginMethod = "builder-id" | "google" | "github" | "organization"
+
 export interface KiroCliLoginOptions {
+  readonly method?: KiroCliLoginMethod
   readonly license?: "free" | "pro"
   readonly identityProvider?: string
   readonly region?: string
@@ -546,7 +549,7 @@ export function extractKiroLoginCode(output: string): string | undefined {
 }
 
 function defaultSpawner(command: string, args: ReadonlyArray<string>): ChildProcess {
-  return spawn(command, [...args], { stdio: ["ignore", "pipe", "pipe"] })
+  return spawn(command, [...args], { stdio: ["pipe", "pipe", "pipe"] })
 }
 
 function loginKey(options: KiroCliLoginOptions = {}): string {
@@ -563,12 +566,36 @@ function loginOptionsAndSpawner(
 
 export function kiroCliLoginArgs(options: KiroCliLoginOptions = {}): string[] {
   const args = ["login"]
-  if (options.license) args.push("--license", options.license)
+  const license = options.license ?? (options.method === "organization" ? "pro" : options.method ? "free" : undefined)
+  if (license) args.push("--license", license)
   if (options.identityProvider) args.push("--identity-provider", options.identityProvider)
   if (options.region) args.push("--region", options.region)
   if (options.useDeviceFlow) args.push("--use-device-flow")
   args.push(...(options.extraArgs ?? []))
   return args
+}
+
+function loginMethodSelection(method: KiroCliLoginMethod): string {
+  switch (method) {
+    case "builder-id":
+      return "\r"
+    case "google":
+      return "\x1B[B\r"
+    case "github":
+      return "\x1B[B\x1B[B\r"
+    case "organization":
+      return "\x1B[B\x1B[B\x1B[B\r"
+  }
+}
+
+function loginMethodPromptSeen(output: string): boolean {
+  return (
+    output.includes("Select login method") ||
+    output.includes("Use with Builder ID") ||
+    output.includes("Use with Google") ||
+    output.includes("Use with GitHub") ||
+    output.includes("Use with Your Organization")
+  )
 }
 
 export function startKiroCliLogin(
@@ -580,12 +607,21 @@ export function startKiroCliLogin(
   let output = ""
   let exited = false
   let exitCode: number | null = null
+  let selectedLoginMethod = false
+
+  const maybeSelectLoginMethod = () => {
+    if (!resolved.options.method || selectedLoginMethod || !loginMethodPromptSeen(output)) return
+    child.stdin?.write(loginMethodSelection(resolved.options.method))
+    selectedLoginMethod = true
+  }
 
   child.stdout?.on("data", (chunk: Buffer) => {
     output += chunk.toString("utf8")
+    maybeSelectLoginMethod()
   })
   child.stderr?.on("data", (chunk: Buffer) => {
     output += chunk.toString("utf8")
+    maybeSelectLoginMethod()
   })
   child.on("exit", (code) => {
     exited = true

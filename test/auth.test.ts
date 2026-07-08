@@ -136,6 +136,18 @@ describe("auth diagnostics", () => {
   test("builds Kiro CLI login args for default, device flow, and Identity Center login", () => {
     expect(kiroCliLoginArgs()).toEqual(["login"])
     expect(kiroCliLoginArgs({ useDeviceFlow: true })).toEqual(["login", "--use-device-flow"])
+    expect(kiroCliLoginArgs({ method: "github", useDeviceFlow: true })).toEqual([
+      "login",
+      "--license",
+      "free",
+      "--use-device-flow",
+    ])
+    expect(kiroCliLoginArgs({ method: "organization", useDeviceFlow: true })).toEqual([
+      "login",
+      "--license",
+      "pro",
+      "--use-device-flow",
+    ])
     expect(
       kiroCliLoginArgs({
         license: "pro",
@@ -327,6 +339,34 @@ describe("auth diagnostics", () => {
         ],
       },
     ])
+  })
+
+  test("selects configured Kiro CLI login method when the prompt appears", async () => {
+    const stdout = new PassThrough()
+    const stderr = new PassThrough()
+    const stdin = new PassThrough()
+    const child = new EventEmitter() as EventEmitter & {
+      stdin: PassThrough
+      stdout: PassThrough
+      stderr: PassThrough
+    }
+    child.stdin = stdin
+    child.stdout = stdout
+    child.stderr = stderr
+    const writes: string[] = []
+    stdin.on("data", (chunk) => writes.push(chunk.toString("utf8")))
+
+    const session = startKiroCliLogin({ method: "github", useDeviceFlow: true }, () => {
+      queueMicrotask(() => {
+        stdout.write("? Select login method\n")
+        stdout.write("Use with Builder ID\nUse with Google\nUse with GitHub\nUse with Your Organization\n")
+        stdout.write("Open https://example.com/device and enter ABCD-EFGH")
+      })
+      return child as unknown as ChildProcess
+    })
+
+    expect(await session.waitForPrompt(1000)).toBe(true)
+    expect(writes).toEqual(["\x1B[B\x1B[B\r"])
   })
 
   test("reuses an in-flight Kiro CLI device login session", async () => {

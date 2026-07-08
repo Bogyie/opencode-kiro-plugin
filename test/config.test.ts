@@ -27,6 +27,7 @@ describe("loadOptions", () => {
         providerID: "kiro-dev",
         region: "eu-central-1",
         login: {
+          method: "organization",
           license: "pro",
           identityProvider: " https://example.awsapps.com/start ",
           region: " ap-northeast-2 ",
@@ -57,6 +58,7 @@ describe("loadOptions", () => {
       providerID: "kiro-dev",
       region: "eu-central-1",
       login: {
+        method: "organization",
         license: "pro",
         identityProvider: "https://example.awsapps.com/start",
         region: "ap-northeast-2",

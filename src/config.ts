@@ -1,4 +1,4 @@
-import type { KiroCliLoginOptions } from "./auth.js"
+import type { KiroCliLoginMethod, KiroCliLoginOptions } from "./auth.js"
 
 export type BackendMode = "auto" | "fetch" | "cli-chat" | "acp"
 export type ModelDiscoveryMode = "auto" | "off"
@@ -33,6 +33,7 @@ export const DEFAULT_MAX_ATTEMPTS = 3
 
 const BACKENDS = new Set<BackendMode>(["auto", "fetch", "cli-chat", "acp"])
 const DISCOVERY_MODES = new Set<ModelDiscoveryMode>(["auto", "off"])
+const LOGIN_METHODS = new Set<KiroCliLoginMethod>(["builder-id", "google", "github", "organization"])
 
 function stringRecord(value: unknown): Record<string, string> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {}
@@ -81,11 +82,16 @@ function optionalString(value: unknown): string | undefined {
 
 function loginOptions(value: unknown): KiroCliLoginOptions {
   const input = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
+  const method =
+    typeof input.method === "string" && LOGIN_METHODS.has(input.method as KiroCliLoginMethod)
+      ? (input.method as KiroCliLoginMethod)
+      : undefined
   const license = input.license === "free" || input.license === "pro" ? input.license : undefined
   const identityProvider = optionalString(input.identityProvider)
   const region = optionalString(input.region)
   const extraArgs = stringArray(input.extraArgs)
   return {
+    ...(method ? { method } : {}),
     ...(license ? { license } : {}),
     ...(identityProvider ? { identityProvider } : {}),
     ...(region ? { region } : {}),
