@@ -190,6 +190,8 @@ export function createKiroPlugin(): Plugin {
     }
     let discovery: Promise<CachedModelInfo[]> | undefined
     let lastModelDiscoveryAt = 0
+    let startupLogin: Promise<boolean> | undefined
+    let startupLoginAttempted = false
     const refreshModels = async (force = false) => {
       const discoveryIsStale = lastModelDiscoveryAt === 0 || Date.now() - lastModelDiscoveryAt > options.modelCacheTtlSeconds * 1000
       if (options.modelDiscovery === "off" || options.modelDiscoveryCommand.length === 0 || (!force && !discoveryIsStale)) {
@@ -214,6 +216,25 @@ export function createKiroPlugin(): Plugin {
           })
       }
       return discovery
+    }
+    const ensureStartupAuthenticated = async () => {
+      const current = await detectAuth().catch(() => undefined)
+      if (current?.authenticated) return true
+      if (startupLogin) return startupLogin
+      if (startupLoginAttempted) return false
+      startupLoginAttempted = true
+      startupLogin = (async () => {
+        const session = startKiroCliLoginOnce({
+          ...options.login,
+          useDeviceFlow: true,
+        })
+        const prompted = await session.waitForPrompt(options.requestTimeoutMs)
+        if (!prompted) return false
+        return session.waitForAuth()
+      })().finally(() => {
+        startupLogin = undefined
+      })
+      return startupLogin
     }
     const resolver = new ModelResolver({
       cache: modelCache,
@@ -272,6 +293,7 @@ export function createKiroPlugin(): Plugin {
         localServer = undefined
       },
       config: async (config: MutableConfig) => {
+        await ensureStartupAuthenticated()
         await refreshModels()
         config.provider ??= {}
         config.provider[options.providerID] ??= {}

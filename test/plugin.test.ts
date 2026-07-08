@@ -18,19 +18,25 @@ const input = {
 const withoutDiscovery = { modelDiscovery: "off" } as const
 let originalModelCachePath: string | undefined
 let isolatedModelCacheDirectory: string | undefined
+let originalApiKey: string | undefined
 
 beforeEach(() => {
   originalModelCachePath = process.env.OPENCODE_KIRO_MODEL_CACHE
+  originalApiKey = process.env.KIRO_API_KEY
   isolatedModelCacheDirectory = mkdtempSync(join(tmpdir(), "opencode-kiro-plugin-test-cache-"))
   process.env.OPENCODE_KIRO_MODEL_CACHE = join(isolatedModelCacheDirectory, "models.json")
+  process.env.KIRO_API_KEY = "test-api-key"
 })
 
 afterEach(() => {
   if (originalModelCachePath === undefined) delete process.env.OPENCODE_KIRO_MODEL_CACHE
   else process.env.OPENCODE_KIRO_MODEL_CACHE = originalModelCachePath
+  if (originalApiKey === undefined) delete process.env.KIRO_API_KEY
+  else process.env.KIRO_API_KEY = originalApiKey
   if (isolatedModelCacheDirectory) rmSync(isolatedModelCacheDirectory, { recursive: true, force: true })
   isolatedModelCacheDirectory = undefined
   originalModelCachePath = undefined
+  originalApiKey = undefined
 })
 
 async function providerModels(hooks: Awaited<ReturnType<ReturnType<typeof createKiroPlugin>>>, models: Record<string, unknown> = {}) {
@@ -254,6 +260,59 @@ describe("Kiro plugin", () => {
     await hooks.dispose?.()
   })
 
+  test("blocks startup config on Kiro device login before model discovery when unauthenticated", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "opencode-kiro-startup-login-"))
+    const fakeCli = join(directory, "kiro-cli")
+    const marker = join(directory, "authenticated")
+    const log = join(directory, "args")
+    const originalPath = process.env.PATH
+    delete process.env.KIRO_API_KEY
+    writeFileSync(
+      fakeCli,
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('node:fs')",
+        `const marker = ${JSON.stringify(marker)}`,
+        `fs.appendFileSync(${JSON.stringify(log)}, process.argv.slice(2).join(" ") + "\\n")`,
+        'if (process.argv[2] === "whoami") {',
+        '  if (fs.existsSync(marker)) { console.log("dev@example.com"); process.exit(0) }',
+        "  process.exit(1)",
+        "}",
+        'if (process.argv[2] === "login") {',
+        '  fs.writeFileSync(marker, "yes")',
+        '  console.log("Open https://example.com/device and enter ABCD-EFGH")',
+        "  process.exit(0)",
+        "}",
+        'if (process.argv[2] === "chat" && process.argv.includes("--list-models")) {',
+        '  if (!fs.existsSync(marker)) process.exit(1)',
+        '  console.log(JSON.stringify({models:[{id:"startup-login-model",name:"Startup Login Model"}]}))',
+        "  process.exit(0)",
+        "}",
+        "process.exit(1)",
+      ].join("\n"),
+    )
+    chmodSync(fakeCli, 0o755)
+    process.env.PATH = `${directory}:${originalPath ?? ""}`
+
+    try {
+      const hooks = await createKiroPlugin()(input, { requestTimeoutMs: 1000 })
+      const config: any = {}
+
+      await hooks.config?.(config)
+      const calls = readFileSync(log, "utf8")
+
+      expect(config.provider.kiro.models["startup-login-model"].name).toBe("Startup Login Model")
+      expect(calls).toContain("whoami")
+      expect(calls).toContain("login --use-device-flow")
+      expect(calls).toContain("chat --list-models --format json")
+      await hooks.dispose?.()
+    } finally {
+      if (originalPath === undefined) delete process.env.PATH
+      else process.env.PATH = originalPath
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
   test("uses stored model cache during startup when discovery fails", async () => {
     const directory = mkdtempSync(join(tmpdir(), "opencode-kiro-model-cache-"))
     const cachePath = join(directory, "models.json")
@@ -420,7 +479,6 @@ describe("Kiro plugin", () => {
     const fakeCli = join(directory, "kiro-cli")
     const log = join(directory, "args")
     const originalPath = process.env.PATH
-    const originalApiKey = process.env.KIRO_API_KEY
     writeFileSync(
       fakeCli,
       [
@@ -444,7 +502,6 @@ describe("Kiro plugin", () => {
     )
     chmodSync(fakeCli, 0o755)
     process.env.PATH = `${directory}:${originalPath ?? ""}`
-    delete process.env.KIRO_API_KEY
 
     try {
       const hooks = await createKiroPlugin()(input, { ...withoutDiscovery, backend: "cli-chat", requestTimeoutMs: 1000 })
@@ -467,8 +524,6 @@ describe("Kiro plugin", () => {
     } finally {
       if (originalPath === undefined) delete process.env.PATH
       else process.env.PATH = originalPath
-      if (originalApiKey === undefined) delete process.env.KIRO_API_KEY
-      else process.env.KIRO_API_KEY = originalApiKey
       rmSync(directory, { recursive: true, force: true })
     }
   })
@@ -498,7 +553,6 @@ describe("Kiro plugin", () => {
     )
     chmodSync(fakeCli, 0o755)
     process.env.PATH = `${directory}:${originalPath ?? ""}`
-    delete process.env.KIRO_API_KEY
 
     try {
       const hooks = await createKiroPlugin()(input, { ...withoutDiscovery, backend: "cli-chat", requestTimeoutMs: 1000 })
@@ -668,6 +722,7 @@ describe("Kiro plugin", () => {
   })
 
   test("auth loader preserves stored Kiro device OAuth keys", async () => {
+    delete process.env.KIRO_API_KEY
     const key = encodeKiroDeviceAuthKey({
       accessToken: "access",
       refreshToken: "refresh",

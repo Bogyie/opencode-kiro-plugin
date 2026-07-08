@@ -45,7 +45,7 @@ describe("package metadata", () => {
   test("declares every OpenCode hook exposed by the plugin", () => {
     expect(packageJson.opencode).toEqual({
       type: "plugin",
-      hooks: ["auth", "config", "provider", "tool"],
+      hooks: ["auth", "chat.headers", "config", "provider", "tool"],
     })
   })
 
