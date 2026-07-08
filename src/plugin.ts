@@ -29,6 +29,8 @@ type MutableConfig = Record<string, any>
 type EffectiveBackend = "fetch" | "cli-chat" | "acp" | "none"
 const PLACEHOLDER_MODEL_ID = "auto"
 const PLACEHOLDER_MODEL: ProviderModelConfig = { name: "Auto" }
+const OPENCODE_AGENT_HEADER = "x-opencode-kiro-agent"
+const LOGIN_SUPPRESSED_AGENTS = new Set(["title"])
 
 function discoveredProviderModels(cache: ModelCache): Record<string, ProviderModelConfig> {
   return Object.fromEntries(
@@ -105,15 +107,26 @@ export function effectiveBackend(options: Pick<KiroPluginOptions, "backend">, ac
   return "fetch"
 }
 
-function localTransport(options: KiroPluginOptions, accessToken?: string): KiroTransport | undefined {
+function shouldLoginOnAuthFailure(init: RequestInit | undefined): boolean {
+  const agent = new Headers(init?.headers).get(OPENCODE_AGENT_HEADER)
+  return !agent || !LOGIN_SUPPRESSED_AGENTS.has(agent)
+}
+
+function localTransport(
+  options: KiroPluginOptions,
+  accessToken?: string,
+  behavior: { readonly loginOnAuthFailure?: boolean } = {},
+): KiroTransport | undefined {
   const backend = effectiveBackend(options, accessToken)
-  const login = () =>
-    runKiroLoginFlowOnce({
+  const login = () => {
+    if (behavior.loginOnAuthFailure === false) return Promise.resolve(false)
+    return runKiroLoginFlowOnce({
       login: {
         ...options.login,
         useDeviceFlow: true,
       },
     })
+  }
   if (backend === "acp") return new KiroAcpTransport(acpTransportOptions(options))
   if (backend === "cli-chat") {
     return new KiroCliChatTransport({
@@ -212,7 +225,9 @@ export function createKiroPlugin(): Plugin {
     const ensureLocalServer = async () => {
       if (localServer) return localServer
       const localFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-        const transport = localTransport(options, bearerToken(init))
+        const transport = localTransport(options, bearerToken(init), {
+          loginOnAuthFailure: shouldLoginOnAuthFailure(init),
+        })
         return createKiroFetch({
           resolver,
           models: async () => {
@@ -386,6 +401,10 @@ export function createKiroPlugin(): Plugin {
               }),
           ) as any
         },
+      },
+      "chat.headers": async (input, output) => {
+        if (input.model.providerID !== options.providerID) return
+        output.headers[OPENCODE_AGENT_HEADER] = input.agent
       },
     }
   }

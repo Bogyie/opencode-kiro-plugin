@@ -133,6 +133,25 @@ describe("Kiro plugin", () => {
     expect(hooks.provider?.id).toBe("kiro")
   })
 
+  test("tags Kiro chat requests with the OpenCode agent header", async () => {
+    const hooks = await createKiroPlugin()(input, withoutDiscovery)
+    const output = { headers: {} as Record<string, string> }
+
+    await hooks["chat.headers"]?.(
+      {
+        sessionID: "ses_test",
+        agent: "title",
+        model: { providerID: "kiro" },
+        provider: { id: "kiro" },
+        message: { id: "msg_test" },
+      } as any,
+      output as any,
+    )
+
+    expect(output.headers["x-opencode-kiro-agent"]).toBe("title")
+    await hooks.dispose?.()
+  })
+
   test("keeps connector login on the Kiro CLI device-flow path", async () => {
     const hooks = await createKiroPlugin()(input, {
       profileArn: "arn:aws:codewhisperer:ap-northeast-2:123456789012:profile/PROFILEID",
@@ -444,6 +463,63 @@ describe("Kiro plugin", () => {
       expect(response.status).toBe(401)
       expect(body.error.code).toBe("KIRO_AUTH_ERROR")
       expect(readFileSync(log, "utf8")).toContain("login --use-device-flow")
+      await hooks.dispose?.()
+    } finally {
+      if (originalPath === undefined) delete process.env.PATH
+      else process.env.PATH = originalPath
+      if (originalApiKey === undefined) delete process.env.KIRO_API_KEY
+      else process.env.KIRO_API_KEY = originalApiKey
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  test("does not start login for OpenCode title requests that fail auth", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "opencode-kiro-title-auth-"))
+    const fakeCli = join(directory, "kiro-cli")
+    const log = join(directory, "args")
+    const originalPath = process.env.PATH
+    const originalApiKey = process.env.KIRO_API_KEY
+    writeFileSync(
+      fakeCli,
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('node:fs')",
+        `fs.appendFileSync(${JSON.stringify(log)}, process.argv.slice(2).join(" ") + "\\n")`,
+        'if (process.argv[2] === "chat") {',
+        '  console.error("not logged in")',
+        "  process.exit(1)",
+        "}",
+        'if (process.argv[2] === "login") {',
+        '  console.log("Open https://app.kiro.dev/signin and enter ABCD-EFGH")',
+        "  process.exit(0)",
+        "}",
+        "process.exit(1)",
+      ].join("\n"),
+    )
+    chmodSync(fakeCli, 0o755)
+    process.env.PATH = `${directory}:${originalPath ?? ""}`
+    delete process.env.KIRO_API_KEY
+
+    try {
+      const hooks = await createKiroPlugin()(input, { ...withoutDiscovery, backend: "cli-chat", requestTimeoutMs: 1000 })
+      const config: any = {}
+      await hooks.config?.(config)
+
+      const response = await fetch(`${config.provider.kiro.api}/chat/completions`, {
+        method: "POST",
+        headers: { "x-opencode-kiro-agent": "title" },
+        body: JSON.stringify({
+          model: "auto",
+          messages: [{ role: "user", content: "generate title" }],
+        }),
+      })
+      const body = await response.json()
+      const calls = readFileSync(log, "utf8")
+
+      expect(response.status).toBe(401)
+      expect(body.error.code).toBe("KIRO_AUTH_ERROR")
+      expect(calls).toContain("chat --no-interactive")
+      expect(calls).not.toContain("login")
       await hooks.dispose?.()
     } finally {
       if (originalPath === undefined) delete process.env.PATH
