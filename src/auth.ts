@@ -104,6 +104,7 @@ export interface KiroLoginFlowOptions {
 }
 
 export const KIRO_LOGIN_URL = "https://view.awsapps.com/start"
+export const KIRO_LOCAL_TRANSPORT_KEY = "kiro-plugin-local-transport"
 export const DEFAULT_KIRO_CLI_DB_PATH = join(homedir(), "Library", "Application Support", "kiro-cli", "data.sqlite3")
 export const DEFAULT_KIRO_CLI_TOKEN_KEYS = ["kirocli:odic:token", "codewhisperer:odic:token"] as const
 const KIRO_DEVICE_AUTH_KEY_PREFIX = "kiro-device:"
@@ -663,7 +664,7 @@ export function startKiroCliLogin(
       const deadline = Date.now() + 10 * 60 * 1000
       while (Date.now() < deadline) {
         const auth = await detectAuth(process.env, runner)
-        if (auth.authenticated) return true
+        if (auth.authenticated && (!loginPromptReady(output) || exited)) return true
         if (exited && exitCode !== 0 && !loginPromptReady(output)) return false
         await delay(2000)
       }
@@ -790,7 +791,9 @@ export async function resolveApiKey(
   if (env.KIRO_API_KEY) return env.KIRO_API_KEY
   try {
     const credential = await auth()
-    return credential.key || credential.access || ""
+    if (credential.type === "api") return credential.key || credential.access || ""
+    const key = credential.key || credential.access || ""
+    return key === KIRO_LOCAL_TRANSPORT_KEY || isKiroDeviceAuthKey(key) ? key : ""
   } catch {
     return ""
   }

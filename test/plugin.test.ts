@@ -744,6 +744,25 @@ describe("Kiro plugin", () => {
     await hooks.dispose?.()
   })
 
+  test("auth loader ignores generic OAuth access tokens from OpenCode browser flows", async () => {
+    const original = process.env.KIRO_API_KEY
+    delete process.env.KIRO_API_KEY
+    try {
+      const hooks = await createKiroPlugin()(input, withoutDiscovery)
+      const loaded = await hooks.auth?.loader?.(
+        async () => ({ type: "oauth", access: "plain-oauth-access-token", refresh: "refresh", expires: Date.now() + 3600_000 }),
+        {} as any,
+      )
+
+      expect(loaded?.apiKey).toBe("kiro-plugin-local-transport")
+      expect(loaded?.baseURL?.startsWith("http://127.0.0.1:")).toBe(true)
+      await hooks.dispose?.()
+    } finally {
+      if (original === undefined) delete process.env.KIRO_API_KEY
+      else process.env.KIRO_API_KEY = original
+    }
+  })
+
   test("auth loader can be created with extra models without pass-through", async () => {
     const hooks = await createKiroPlugin()(input, {
       ...withoutDiscovery,

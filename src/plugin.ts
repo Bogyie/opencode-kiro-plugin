@@ -6,6 +6,7 @@ import {
   credentialFromKiroDeviceAuthKey,
   detectAuth,
   isKiroDeviceAuthKey,
+  KIRO_LOCAL_TRANSPORT_KEY,
   readKiroCliSessionCredential,
   resolveApiKey,
   startKiroCliLoginOnce,
@@ -103,7 +104,7 @@ export function effectiveBackend(options: Pick<KiroPluginOptions, "backend">, ac
   if (options.backend === "acp") return "acp"
   if (options.backend === "cli-chat") return "cli-chat"
   if (options.backend === "fetch") return "fetch"
-  if (apiKey && apiKey !== "kiro-plugin-local-transport") return "fetch"
+  if (apiKey && apiKey !== KIRO_LOCAL_TRANSPORT_KEY) return "fetch"
   return "fetch"
 }
 
@@ -144,7 +145,7 @@ function localTransport(
         login,
       })
     }
-    return new KiroRestTransport(fetchTransportOptions(options, apiKey === "kiro-plugin-local-transport" ? undefined : apiKey), {
+    return new KiroRestTransport(fetchTransportOptions(options, apiKey === KIRO_LOCAL_TRANSPORT_KEY ? undefined : apiKey), {
       login,
     })
   }
@@ -278,7 +279,7 @@ export function createKiroPlugin(): Plugin {
           await refreshModels(true).catch(() => [])
           return {
             type: "success" as const,
-            key: "kiro-plugin-local-transport",
+            key: KIRO_LOCAL_TRANSPORT_KEY,
             metadata: {
               source: "kiro-cli-device-flow",
             },
@@ -340,7 +341,7 @@ export function createKiroPlugin(): Plugin {
           const apiKey = await resolveApiKey(auth)
           const server = await ensureLocalServer()
           return {
-            apiKey: apiKey || "kiro-plugin-local-transport",
+            apiKey: apiKey || KIRO_LOCAL_TRANSPORT_KEY,
             baseURL: server.baseURL,
           }
         },

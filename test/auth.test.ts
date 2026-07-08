@@ -12,6 +12,7 @@ import {
   extractKiroLoginUrl,
   kiroCliLoginArgs,
   kiroDeviceVerificationUrl,
+  KIRO_LOCAL_TRANSPORT_KEY,
   KIRO_LOGIN_URL,
   pollKiroDeviceToken,
   readKiroCliSessionCredential,
@@ -90,15 +91,31 @@ describe("auth diagnostics", () => {
   })
 
   test("resolveApiKey accepts stored OAuth connector keys", async () => {
-    const key = await resolveApiKey(async () => ({ type: "oauth", key: "stored-device-key" }), {})
+    const key = await resolveApiKey(async () => ({ type: "oauth", key: KIRO_LOCAL_TRANSPORT_KEY }), {})
 
-    expect(key).toBe("stored-device-key")
+    expect(key).toBe(KIRO_LOCAL_TRANSPORT_KEY)
   })
 
-  test("resolveApiKey accepts stored OAuth access fields", async () => {
-    const key = await resolveApiKey(async () => ({ type: "oauth", access: "stored-device-key" }), {})
+  test("resolveApiKey accepts encoded Kiro device auth keys from OAuth storage", async () => {
+    const deviceKey = encodeKiroDeviceAuthKey({
+      accessToken: "access",
+      refreshToken: "refresh",
+      expiresAt: Date.now() + 3600_000,
+      clientId: "client-id",
+      clientSecret: "client-secret",
+      oidcRegion: "ap-northeast-2",
+      region: "us-east-1",
+      startUrl: "https://example.awsapps.com/start",
+    })
+    const key = await resolveApiKey(async () => ({ type: "oauth", access: deviceKey }), {})
 
-    expect(key).toBe("stored-device-key")
+    expect(key).toBe(deviceKey)
+  })
+
+  test("resolveApiKey ignores generic OAuth access tokens", async () => {
+    const key = await resolveApiKey(async () => ({ type: "oauth", access: "plain-oauth-access-token" }), {})
+
+    expect(key).toBe("")
   })
 
   test("resolveApiKey tolerates missing stored auth", async () => {
@@ -303,7 +320,10 @@ describe("auth diagnostics", () => {
 
     const session = startKiroCliLogin((command, args) => {
       calls.push({ command, args })
-      queueMicrotask(() => stdout.write("Open https://example.com/device and enter ABCD-EFGH"))
+      queueMicrotask(() => {
+        stdout.write("Open https://example.com/device and enter ABCD-EFGH")
+        child.emit("exit", 0)
+      })
       return child as unknown as ChildProcess
     })
     const prompted = await session.waitForPrompt(1000)
@@ -451,7 +471,10 @@ describe("auth diagnostics", () => {
     let starts = 0
     const spawner = () => {
       starts += 1
-      queueMicrotask(() => stdout.write("Open https://example.com/device and enter ABCD-EFGH"))
+      queueMicrotask(() => {
+        stdout.write("Open https://example.com/device and enter ABCD-EFGH")
+        child.emit("exit", 0)
+      })
       return child as unknown as ChildProcess
     }
 
