@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
-import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { encodeKiroDeviceAuthKey } from "../src/auth.js"
@@ -359,6 +359,98 @@ describe("Kiro plugin", () => {
       await hooks.dispose?.()
     } finally {
       marker.cleanup()
+    }
+  })
+
+  test("serves /v1/models from discovery cache fallback without invoking chat transport", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "opencode-kiro-model-route-"))
+    const counter = join(directory, "count")
+    const script = [
+      "const fs = require('node:fs')",
+      `const file = ${JSON.stringify(counter)}`,
+      "const count = fs.existsSync(file) ? Number(fs.readFileSync(file, 'utf8')) : 0",
+      "fs.writeFileSync(file, String(count + 1))",
+      "process.exit(1)",
+    ].join(";")
+    const hooks = await createKiroPlugin()(input, {
+      modelDiscoveryCommand: [process.execPath, "-e", script],
+    })
+    const config: any = {}
+
+    try {
+      await hooks.config?.(config)
+      expect(readFileSync(counter, "utf8")).toBe("1")
+
+      const response = await fetch(`${config.provider.kiro.api}/models`)
+      const body = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(readFileSync(counter, "utf8")).toBe("2")
+      expect(body).toEqual({
+        object: "list",
+        data: [{ id: "auto", object: "model", created: 0, owned_by: "kiro" }],
+      })
+      await hooks.dispose?.()
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  test("uses Kiro CLI device flow when chat auth retry starts login", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "opencode-kiro-chat-login-"))
+    const fakeCli = join(directory, "kiro-cli")
+    const log = join(directory, "args")
+    const originalPath = process.env.PATH
+    const originalApiKey = process.env.KIRO_API_KEY
+    writeFileSync(
+      fakeCli,
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('node:fs')",
+        `fs.appendFileSync(${JSON.stringify(log)}, process.argv.slice(2).join(" ") + "\\n")`,
+        'if (process.argv[2] === "chat") {',
+        '  console.error("not logged in")',
+        "  process.exit(1)",
+        "}",
+        'if (process.argv[2] === "login") {',
+        '  console.log("Open https://app.kiro.dev/signin and enter ABCD-EFGH")',
+        "  process.exit(0)",
+        "}",
+        'if (process.argv[2] === "whoami") {',
+        '  console.log("dev@example.com")',
+        "  process.exit(0)",
+        "}",
+        "process.exit(1)",
+      ].join("\n"),
+    )
+    chmodSync(fakeCli, 0o755)
+    process.env.PATH = `${directory}:${originalPath ?? ""}`
+    delete process.env.KIRO_API_KEY
+
+    try {
+      const hooks = await createKiroPlugin()(input, { ...withoutDiscovery, backend: "cli-chat", requestTimeoutMs: 1000 })
+      const config: any = {}
+      await hooks.config?.(config)
+
+      const response = await fetch(`${config.provider.kiro.api}/chat/completions`, {
+        method: "POST",
+        body: JSON.stringify({
+          model: "auto",
+          messages: [{ role: "user", content: "hello" }],
+        }),
+      })
+      const body = await response.json()
+
+      expect(response.status).toBe(401)
+      expect(body.error.code).toBe("KIRO_AUTH_ERROR")
+      expect(readFileSync(log, "utf8")).toContain("login --use-device-flow")
+      await hooks.dispose?.()
+    } finally {
+      if (originalPath === undefined) delete process.env.PATH
+      else process.env.PATH = originalPath
+      if (originalApiKey === undefined) delete process.env.KIRO_API_KEY
+      else process.env.KIRO_API_KEY = originalApiKey
+      rmSync(directory, { recursive: true, force: true })
     }
   })
 

@@ -107,12 +107,19 @@ export function effectiveBackend(options: Pick<KiroPluginOptions, "backend">, ac
 
 function localTransport(options: KiroPluginOptions, accessToken?: string): KiroTransport | undefined {
   const backend = effectiveBackend(options, accessToken)
+  const login = () =>
+    runKiroLoginFlowOnce({
+      login: {
+        ...options.login,
+        useDeviceFlow: true,
+      },
+    })
   if (backend === "acp") return new KiroAcpTransport(acpTransportOptions(options))
   if (backend === "cli-chat") {
     return new KiroCliChatTransport({
       trustAllTools: options.trustAllTools,
       ...(options.requestTimeoutMs ? { requestTimeoutMs: options.requestTimeoutMs } : {}),
-      login: () => runKiroLoginFlowOnce({ login: options.login }),
+      login,
     })
   }
   if (backend === "fetch") {
@@ -121,11 +128,11 @@ function localTransport(options: KiroPluginOptions, accessToken?: string): KiroT
       return new KiroRestTransport(fetchTransportOptions(options), {
         credentialProvider: async () =>
           (await credentialFromKiroDeviceAuthKey(apiKey as string).catch(() => undefined)) ?? readKiroCliSessionCredential(),
-        login: () => runKiroLoginFlowOnce({ login: options.login }),
+        login,
       })
     }
     return new KiroRestTransport(fetchTransportOptions(options, apiKey === "kiro-plugin-local-transport" ? undefined : apiKey), {
-      login: () => runKiroLoginFlowOnce({ login: options.login }),
+      login,
     })
   }
   return undefined
@@ -208,6 +215,10 @@ export function createKiroPlugin(): Plugin {
         const transport = localTransport(options, bearerToken(init))
         return createKiroFetch({
           resolver,
+          models: async () => {
+            await refreshModels(true).catch(() => [])
+            return Object.keys(visibleProviderModels(modelCache, configuredModels, options.hiddenModels, disabledModels))
+          },
           ...(transport ? { transport } : {}),
         })(input, init)
       }

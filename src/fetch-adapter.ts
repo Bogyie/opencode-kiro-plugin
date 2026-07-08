@@ -11,9 +11,15 @@ export interface KiroTransport {
 export interface KiroFetchOptions {
   readonly resolver: ModelResolver
   readonly transport?: KiroTransport
+  readonly models?: () => Promise<ReadonlyArray<string | OpenAIModelListItem>>
 }
 
 export type FetchAdapter = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+
+export interface OpenAIModelListItem {
+  readonly id: string
+  readonly [key: string]: unknown
+}
 
 const unsupportedTransport: KiroTransport = {
   async generate(): Promise<KiroGenerateResponse> {
@@ -33,10 +39,41 @@ async function* responseToStream(response: KiroGenerateResponse, fallbackModelId
   for (const toolCall of response.toolCalls ?? []) yield toolCall
 }
 
+function requestPath(input: RequestInfo | URL): string {
+  const raw = input instanceof Request ? input.url : input.toString()
+  const pathname = new URL(raw, "http://127.0.0.1").pathname.replace(/\/+$/, "")
+  return pathname || "/"
+}
+
+function isModelsPath(pathname: string): boolean {
+  return pathname === "/v1/models" || pathname === "/models"
+}
+
+function toOpenAIModel(item: string | OpenAIModelListItem): Record<string, unknown> {
+  const id = typeof item === "string" ? item : item.id
+  const extra: OpenAIModelListItem = typeof item === "string" ? { id } : item
+  return {
+    ...extra,
+    id,
+    object: "model",
+    created: typeof extra.created === "number" ? extra.created : 0,
+    owned_by: typeof extra.owned_by === "string" ? extra.owned_by : "kiro",
+  }
+}
+
+async function toOpenAIModelsResponse(models: KiroFetchOptions["models"]): Promise<Response> {
+  const data = models ? (await models()).filter((item) => (typeof item === "string" ? item.trim() : item.id.trim())).map(toOpenAIModel) : []
+  return Response.json({
+    object: "list",
+    data,
+  })
+}
+
 export function createKiroFetch(options: KiroFetchOptions): FetchAdapter {
   const transport = options.transport ?? unsupportedTransport
   return async (input, init) => {
     try {
+      if (isModelsPath(requestPath(input))) return toOpenAIModelsResponse(options.models)
       const request = await readOpenAIRequest(input, init)
       const kiroRequest = toKiroGenerateRequest(request, options.resolver)
       if (request.stream === true && transport.stream) {

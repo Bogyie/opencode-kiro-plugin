@@ -281,6 +281,30 @@ describe("response adapter", () => {
 })
 
 describe("createKiroFetch", () => {
+  test("returns model list without invoking chat transport", async () => {
+    const fetch = createKiroFetch({
+      resolver: resolver(),
+      models: async () => [{ id: "auto", name: "Auto" }, "claude-sonnet-4.6"],
+      transport: {
+        async generate() {
+          throw new Error("transport should not be called for model list requests")
+        },
+      },
+    })
+
+    const response = await fetch("https://q.us-east-1.amazonaws.com/v1/models")
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body).toEqual({
+      object: "list",
+      data: [
+        { id: "auto", name: "Auto", object: "model", created: 0, owned_by: "kiro" },
+        { id: "claude-sonnet-4.6", object: "model", created: 0, owned_by: "kiro" },
+      ],
+    })
+  })
+
   test("calls injected transport and returns OpenAI-compatible response", async () => {
     const seen: unknown[] = []
     const fetch = createKiroFetch({
