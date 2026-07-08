@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { existsSync, mkdtempSync, rmSync } from "node:fs"
+import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { encodeKiroDeviceAuthKey } from "../src/auth.js"
@@ -195,10 +195,120 @@ describe("Kiro plugin", () => {
       expect(config.provider.kiro.api.startsWith("http://127.0.0.1:")).toBe(true)
       expect(config.provider.kiro.models).toEqual({ auto: { name: "Auto" } })
       await new Promise((resolve) => setTimeout(resolve, 50))
-      expect(existsSync(marker.marker)).toBe(false)
+      expect(existsSync(marker.marker)).toBe(true)
       await hooks.dispose?.()
     } finally {
       marker.cleanup()
+    }
+  })
+
+  test("refreshes models during startup config when discovery succeeds", async () => {
+    const hooks = await createKiroPlugin()(input, {
+      modelDiscoveryCommand: [
+        process.execPath,
+        "-e",
+        "console.log(JSON.stringify({models:[{id:'startup-model',name:'Startup Model'}]}))",
+      ],
+    })
+    const config: any = {}
+
+    await hooks.config?.(config)
+
+    expect(config.provider.kiro.models["startup-model"].name).toBe("Startup Model")
+    expect(config.provider.kiro.models.auto).toBeUndefined()
+    await hooks.dispose?.()
+  })
+
+  test("uses stored model cache during startup when discovery fails", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "opencode-kiro-model-cache-"))
+    const cachePath = join(directory, "models.json")
+    const original = process.env.OPENCODE_KIRO_MODEL_CACHE
+    process.env.OPENCODE_KIRO_MODEL_CACHE = cachePath
+    writeFileSync(
+      cachePath,
+      JSON.stringify({
+        updatedAt: 1234,
+        models: [{ id: "cached-model", name: "Cached Model" }],
+      }),
+    )
+
+    try {
+      const hooks = await createKiroPlugin()(input, {
+        modelDiscoveryCommand: [process.execPath, "-e", "process.exit(1)"],
+      })
+      const config: any = {}
+
+      await hooks.config?.(config)
+
+      expect(config.provider.kiro.models["cached-model"].name).toBe("Cached Model")
+      expect(config.provider.kiro.models.auto).toBeUndefined()
+      await hooks.dispose?.()
+    } finally {
+      if (original === undefined) delete process.env.OPENCODE_KIRO_MODEL_CACHE
+      else process.env.OPENCODE_KIRO_MODEL_CACHE = original
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  test("refreshes models after successful connector device login", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "opencode-kiro-connector-login-"))
+    const fakeCli = join(directory, "kiro-cli")
+    const cachePath = join(directory, "models.json")
+    const originalPath = process.env.PATH
+    const originalApiKey = process.env.KIRO_API_KEY
+    const originalCache = process.env.OPENCODE_KIRO_MODEL_CACHE
+    writeFileSync(
+      fakeCli,
+      [
+        "#!/usr/bin/env node",
+        'if (process.argv[2] === "login") {',
+        '  console.log("Open https://app.kiro.dev/signin and enter ABCD-EFGH")',
+        "  process.exit(0)",
+        "}",
+        'if (process.argv[2] === "whoami") {',
+        '  console.log("dev@example.com")',
+        "  process.exit(0)",
+        "}",
+        "process.exit(1)",
+      ].join("\n"),
+    )
+    chmodSync(fakeCli, 0o755)
+    process.env.PATH = `${directory}:${originalPath ?? ""}`
+    delete process.env.KIRO_API_KEY
+    process.env.OPENCODE_KIRO_MODEL_CACHE = cachePath
+
+    try {
+      const hooks = await createKiroPlugin()(input, {
+        requestTimeoutMs: 1000,
+        modelDiscoveryCommand: [
+          process.execPath,
+          "-e",
+          "console.log(JSON.stringify({models:[{id:'connector-model',name:'Connector Model'}]}))",
+        ],
+      })
+      const authorize = hooks.auth?.methods[0]?.authorize
+      expect(authorize).toBeFunction()
+
+      const flow = await authorize?.({})
+      expect(flow).toHaveProperty("callback")
+      const result = await (flow as { callback(): Promise<unknown> }).callback()
+      const models = await providerModels(hooks)
+
+      expect(result).toEqual({
+        type: "success",
+        key: "kiro-plugin-local-transport",
+        metadata: { source: "kiro-cli-device-flow" },
+      })
+      expect(models?.["connector-model"]?.name).toBe("Connector Model")
+      await hooks.dispose?.()
+    } finally {
+      if (originalPath === undefined) delete process.env.PATH
+      else process.env.PATH = originalPath
+      if (originalApiKey === undefined) delete process.env.KIRO_API_KEY
+      else process.env.KIRO_API_KEY = originalApiKey
+      if (originalCache === undefined) delete process.env.OPENCODE_KIRO_MODEL_CACHE
+      else process.env.OPENCODE_KIRO_MODEL_CACHE = originalCache
+      rmSync(directory, { recursive: true, force: true })
     }
   })
 
@@ -229,7 +339,7 @@ describe("Kiro plugin", () => {
       await new Promise((resolve) => setTimeout(resolve, 50))
 
       expect(config.provider.kiro.models).toEqual({ auto: { name: "Auto" } })
-      expect(existsSync(marker.marker)).toBe(false)
+      expect(existsSync(marker.marker)).toBe(true)
       await hooks.dispose?.()
     } finally {
       marker.cleanup()

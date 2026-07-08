@@ -16,8 +16,10 @@ import { loadOptions } from "./config.js"
 import type { KiroPluginOptions } from "./config.js"
 import { createKiroFetch, type KiroTransport } from "./fetch-adapter.js"
 import { startLocalKiroServer, type LocalKiroServer } from "./local-server.js"
+import type { CachedModelInfo } from "./model-cache.js"
 import { ModelCache } from "./model-cache.js"
-import { refreshModelCacheFromCommand } from "./model-discovery.js"
+import { discoverModelsFromCommand } from "./model-discovery.js"
+import { loadStoredModelCache, saveStoredModelCache } from "./model-cache-store.js"
 import { ModelResolver, normalizeModelName } from "./model-resolver.js"
 import { KiroRestTransport } from "./kiro-rest-transport.js"
 import type { KiroRestTransportOptions } from "./kiro-rest-transport.js"
@@ -78,6 +80,14 @@ function visibleProviderModels(
   )
   if (Object.keys(models).length > 0 || disabledModels.has(PLACEHOLDER_MODEL_ID)) return models
   return { [PLACEHOLDER_MODEL_ID]: PLACEHOLDER_MODEL }
+}
+
+function extraModelInfos(models: Readonly<Record<string, Record<string, unknown>>>): CachedModelInfo[] {
+  return Object.keys(models).map((id) => ({ id: normalizeModelName(id) }))
+}
+
+function mergeModelInfos(discovered: ReadonlyArray<CachedModelInfo>, extraModels: Readonly<Record<string, Record<string, unknown>>>): CachedModelInfo[] {
+  return [...new Map([...discovered, ...extraModelInfos(extraModels)].map((model) => [model.id, model])).values()]
 }
 
 function bearerToken(init: RequestInit | undefined): string | undefined {
@@ -152,10 +162,13 @@ export function createKiroPlugin(): Plugin {
     let configuredModels: Record<string, Record<string, unknown>> = { ...options.extraModels }
     let userModelOverrides: Record<string, Record<string, unknown>> | undefined
     const disabledModels = new Set(options.disabledModels.map(normalizeModelName))
-    if (Object.keys(options.extraModels).length > 0) {
-      modelCache.update(Object.keys(options.extraModels).map((id) => ({ id: normalizeModelName(id) })))
+    const stored = await loadStoredModelCache()
+    if (stored.models.length > 0) {
+      modelCache.update(mergeModelInfos(stored.models, options.extraModels), stored.updatedAt)
+    } else if (Object.keys(options.extraModels).length > 0) {
+      modelCache.update(extraModelInfos(options.extraModels))
     }
-    let discovery: Promise<unknown> | undefined
+    let discovery: Promise<CachedModelInfo[]> | undefined
     let lastModelDiscoveryAt = 0
     const refreshModels = async (force = false) => {
       const discoveryIsStale = lastModelDiscoveryAt === 0 || Date.now() - lastModelDiscoveryAt > options.modelCacheTtlSeconds * 1000
@@ -163,13 +176,16 @@ export function createKiroPlugin(): Plugin {
         return []
       }
       if (!discovery) {
-        discovery = refreshModelCacheFromCommand(
-          modelCache,
+        discovery = discoverModelsFromCommand(
           options.modelDiscoveryCommand[0] as string,
           options.modelDiscoveryCommand.slice(1),
         )
           .then((models) => {
-            if (models.length > 0) lastModelDiscoveryAt = Date.now()
+            if (models.length > 0) {
+              lastModelDiscoveryAt = Date.now()
+              modelCache.update(mergeModelInfos(models, options.extraModels), lastModelDiscoveryAt)
+              void saveStoredModelCache(models, lastModelDiscoveryAt)
+            }
             return models
           })
           .catch(() => [])
@@ -177,7 +193,7 @@ export function createKiroPlugin(): Plugin {
             discovery = undefined
           })
       }
-      return (await discovery) as Awaited<ReturnType<typeof refreshModelCacheFromCommand>>
+      return discovery
     }
     const resolver = new ModelResolver({
       cache: modelCache,
@@ -230,6 +246,7 @@ export function createKiroPlugin(): Plugin {
         localServer = undefined
       },
       config: async (config: MutableConfig) => {
+        await refreshModels()
         config.provider ??= {}
         config.provider[options.providerID] ??= {}
         const provider = config.provider[options.providerID]
